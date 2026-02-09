@@ -33,13 +33,21 @@ class Step(BaseModel):
 
 
 class Outcome(BaseModel):
-    """执行结果."""
+    """执行结果.
+
+    tests_passed/tests_failed 为 coding 领域字段，保留向后兼容。
+    非 coding 领域使用 score + outcome_metadata 存放结果数据。
+    """
 
     success: bool = Field(description="是否成功")
-    tests_passed: int = Field(default=0, description="通过的测试数")
-    tests_failed: int = Field(default=0, description="失败的测试数")
+    score: float = Field(default=0.0, description="归一化分数 [0.0, 1.0]")
+    tests_passed: int = Field(default=0, description="通过的测试数 (coding)")
+    tests_failed: int = Field(default=0, description="失败的测试数 (coding)")
     total_steps: int = Field(default=0, description="总步骤数")
     total_tokens: int = Field(default=0, description="总 Token 消耗")
+    outcome_metadata: dict[str, Any] = Field(
+        default_factory=dict, description="领域相关结果数据"
+    )
 
 
 class Trajectory(BaseModel):

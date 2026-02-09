@@ -6,6 +6,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from knowlyrcore.domain import DomainProfile, get_domain_profile
+
 from agentreward.config import RewardConfig
 from agentreward.rubrics import RubricSet, get_default_rubric_set
 from agentreward.rules import (
@@ -90,9 +92,11 @@ class RewardEngine:
         self,
         config: RewardConfig | None = None,
         rubric_set: RubricSet | None = None,
+        profile: DomainProfile | None = None,
     ):
         self.config = config or RewardConfig()
         self.rubric_set = rubric_set or get_default_rubric_set()
+        self.profile = profile or get_domain_profile(self.config.domain)
 
     def score(self, trajectory: dict[str, Any]) -> TrajectoryReward:
         """Score a single trajectory.
@@ -115,14 +119,16 @@ class RewardEngine:
         if not steps:
             return TrajectoryReward(
                 total_score=0.0,
-                outcome_score=check_outcome(outcome),
+                outcome_score=check_outcome(
+                    outcome, self.profile.outcome_spec
+                ),
                 process_score=0.0,
             )
 
         # --- Layer 1: Rule-based scoring ---
-        redundancy_scores = check_redundancy(steps)
-        regression_scores = check_regression(steps)
-        info_util_scores = check_info_utilization(steps)
+        redundancy_scores = check_redundancy(steps, self.profile)
+        regression_scores = check_regression(steps, self.profile)
+        info_util_scores = check_info_utilization(steps, self.profile)
 
         # Map rule scores to rubric IDs
         rule_scores_by_step: list[dict[str, float]] = []
@@ -193,7 +199,7 @@ class RewardEngine:
             )
 
         # --- Compute trajectory-level scores ---
-        outcome_score = check_outcome(outcome)
+        outcome_score = check_outcome(outcome, self.profile.outcome_spec)
         process_score = (
             sum(sr.total_score for sr in step_rewards) / len(step_rewards)
             if step_rewards

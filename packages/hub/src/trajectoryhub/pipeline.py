@@ -26,11 +26,14 @@ except ImportError:
 
 try:
     from agentrecorder import Recorder
-    from agentrecorder.adapters import OpenHandsAdapter, SWEAgentAdapter
+    from agentrecorder.adapters import get_adapter as _get_recorder_adapter
 
     _HAS_RECORDER = True
 except ImportError:
     _HAS_RECORDER = False
+
+    def _get_recorder_adapter(name: str):  # type: ignore[misc]
+        return None
 
 try:
     from agentreward.reward import RewardEngine
@@ -39,15 +42,15 @@ try:
 except ImportError:
     _HAS_REWARD = False
 
-# ── 适配器注册表 ───────────────────────────────────────────────────
+try:
+    from knowlyrcore.domain import get_domain_profile
 
-_ADAPTER_MAP = {}
-if _HAS_RECORDER:
-    _ADAPTER_MAP = {
-        "openhands": OpenHandsAdapter,
-        "sweagent": SWEAgentAdapter,
-        "swe-agent": SWEAgentAdapter,
-    }
+    _HAS_CORE_DOMAIN = True
+except ImportError:
+    _HAS_CORE_DOMAIN = False
+
+    def get_domain_profile(domain: str):  # type: ignore[misc]
+        return None
 
 
 @dataclass
@@ -316,11 +319,11 @@ class Pipeline:
         if not _HAS_RECORDER:
             raise RuntimeError("批量处理需要安装 knowlyr-recorder: pip install knowlyr-recorder")
 
-        adapter_cls = _ADAPTER_MAP.get(framework)
-        if adapter_cls is None:
-            raise ValueError(f"不支持的框架: {framework}，支持: {list(_ADAPTER_MAP.keys())}")
+        adapter = _get_recorder_adapter(framework)
+        if adapter is None:
+            raise ValueError(f"不支持的框架: {framework}")
 
-        recorder = Recorder(adapter_cls())
+        recorder = Recorder(adapter)
         recorder_trajs = recorder.convert_batch(str(log_dir), pattern)
 
         trajectories = []
@@ -423,13 +426,11 @@ class Pipeline:
                 "日志解析需要安装 knowlyr-recorder: pip install knowlyr-recorder"
             )
 
-        adapter_cls = _ADAPTER_MAP.get(framework)
-        if adapter_cls is None:
-            raise ValueError(
-                f"不支持的框架: {framework}，支持: {list(_ADAPTER_MAP.keys())}"
-            )
+        adapter = _get_recorder_adapter(framework)
+        if adapter is None:
+            raise ValueError(f"不支持的框架: {framework}")
 
-        recorder = Recorder(adapter_cls())
+        recorder = Recorder(adapter)
         return recorder.convert(str(log_path))
 
     def _score_trajectory(self, recorder_traj) -> Optional[dict]:
@@ -445,7 +446,13 @@ class Pipeline:
             logger.debug("knowlyr-reward 未安装，跳过评分")
             return None
 
-        engine = RewardEngine()
+        # 传递 domain profile 给 RewardEngine
+        profile = None
+        if _HAS_CORE_DOMAIN:
+            domain = self.config.domain or "coding"
+            profile = get_domain_profile(domain)
+
+        engine = RewardEngine(profile=profile)
 
         # 将 recorder 格式转换为 reward engine 输入
         steps = [

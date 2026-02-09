@@ -7,6 +7,7 @@ import logging
 
 __version__ = "0.1.0"
 
+from trajectoryhub.collect import collect
 from trajectoryhub.pipeline import Pipeline, PipelineConfig, PipelineResult, Trajectory
 from trajectoryhub.exporter import DatasetExporter
 
@@ -18,5 +19,6 @@ __all__ = [
     "PipelineResult",
     "Trajectory",
     "DatasetExporter",
+    "collect",
     "__version__",
 ]

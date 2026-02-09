@@ -40,6 +40,7 @@ class AgentConfig(BaseModel):
     model: str = "claude-sonnet-4-20250514"
     max_steps: int = 30
     temperature: float = 0.0
+    domain: str = "coding"
     extra_args: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -110,3 +111,4 @@ class PipelineConfig(BaseModel):
     parallel_workers: int = 1
     checkpoint_interval: int = 10
     resume_from: Optional[str] = None
+    domain: str = "coding"

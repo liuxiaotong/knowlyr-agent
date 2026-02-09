@@ -67,8 +67,10 @@ class TestTaskConfig:
         assert config.repo_url == ""
         assert config.base_commit == ""
         assert config.language == "python"
+        assert config.domain == "coding"
 
     def test_validate_empty(self):
+        """coding 领域空配置应报 2 个错误."""
         config = TaskConfig()
         errors = config.validate()
         assert len(errors) == 2
@@ -80,6 +82,18 @@ class TestTaskConfig:
             repo_url="https://github.com/user/repo",
             base_commit="abc123",
         )
+        errors = config.validate()
+        assert len(errors) == 0
+
+    def test_validate_non_coding_no_repo(self):
+        """非 coding 领域不要求 repo_url/base_commit."""
+        config = TaskConfig(domain="browser")
+        errors = config.validate()
+        assert len(errors) == 0
+
+    def test_validate_non_coding_with_description(self):
+        """非 coding 领域只需 description 即可."""
+        config = TaskConfig(domain="data_analysis", description="分析 CSV 数据")
         errors = config.validate()
         assert len(errors) == 0
 

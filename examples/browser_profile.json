@@ -1,0 +1,68 @@
+{
+  "domain": "browser",
+  "display_name": "Browser Agent",
+  "tools": [
+    {
+      "name": "navigate",
+      "category": "navigate",
+      "stateful_key": "url",
+      "aliases": ["goto", "open_url", "go_to_url"]
+    },
+    {
+      "name": "click",
+      "category": "execute",
+      "stateful_key": "element_id",
+      "aliases": ["click_element"]
+    },
+    {
+      "name": "type_text",
+      "category": "write",
+      "stateful_key": "element_id",
+      "aliases": ["fill", "input_text", "send_keys"]
+    },
+    {
+      "name": "scroll",
+      "category": "navigate",
+      "aliases": ["scroll_down", "scroll_up"]
+    },
+    {
+      "name": "screenshot",
+      "category": "read",
+      "aliases": ["observe", "get_screenshot"]
+    },
+    {
+      "name": "get_text",
+      "category": "read",
+      "stateful_key": "element_id",
+      "aliases": ["extract_text", "read_element"]
+    },
+    {
+      "name": "select_option",
+      "category": "write",
+      "stateful_key": "element_id",
+      "aliases": ["select", "choose_option"]
+    },
+    {
+      "name": "submit",
+      "category": "submit",
+      "aliases": ["done", "finish"]
+    }
+  ],
+  "outcome_spec": {
+    "success_field": "success",
+    "score_field": "",
+    "total_field": "",
+    "partial_credit_field": "partial_credit"
+  },
+  "task_fields": {
+    "start_url": "任务起始 URL",
+    "target_url": "目标页面 URL"
+  },
+  "default_rubric_weights": {
+    "goal_progress": 0.35,
+    "tool_selection": 0.20,
+    "param_correctness": 0.20,
+    "info_utilization": 0.10,
+    "non_redundancy": 0.15
+  }
+}

@@ -29,15 +29,19 @@ class SandboxConfig:
 
 @dataclass
 class TaskConfig:
-    """代码任务配置.
+    """任务配置.
+
+    coding 领域需要 repo_url 和 base_commit；
+    其他领域 (browser / data_analysis 等) 不强制要求。
 
     Attributes:
-        repo_url: Git 仓库 URL
-        base_commit: 起始 commit SHA
+        repo_url: Git 仓库 URL (coding 领域必填)
+        base_commit: 起始 commit SHA (coding 领域必填)
         test_command: 测试命令 (如 'pytest tests/')
         language: 编程语言 (如 'python', 'javascript')
         setup_commands: 环境初始化命令列表
         description: 任务描述
+        domain: 领域标识 (coding / browser / data_analysis 等)
     """
 
     repo_url: str = ""
@@ -46,16 +50,21 @@ class TaskConfig:
     language: str = "python"
     setup_commands: List[str] = field(default_factory=list)
     description: str = ""
+    domain: str = "coding"
 
     def validate(self) -> List[str]:
         """验证配置，返回错误信息列表.
+
+        coding 领域要求 repo_url 和 base_commit 非空；
+        其他领域不要求。
 
         Returns:
             错误信息列表，为空表示配置有效
         """
         errors = []
-        if not self.repo_url:
-            errors.append("repo_url 不能为空")
-        if not self.base_commit:
-            errors.append("base_commit 不能为空")
+        if self.domain == "coding":
+            if not self.repo_url:
+                errors.append("repo_url 不能为空")
+            if not self.base_commit:
+                errors.append("base_commit 不能为空")
         return errors

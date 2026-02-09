@@ -14,8 +14,13 @@ class BaseAdapter(ABC):
     1. 继承 BaseAdapter
     2. 实现 parse() 将日志转换为 Trajectory
     3. 实现 validate() 验证日志格式
-    4. 在 adapters/__init__.py 中注册
+    4. 调用 register_adapter() 注册
+
+    Attributes:
+        domain: 适配器所属领域 (coding / browser / 等)
     """
+
+    domain: str = "coding"
 
     @abstractmethod
     def parse(self, log_path: str) -> Trajectory:

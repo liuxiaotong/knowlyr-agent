@@ -234,9 +234,11 @@ class TestOptionalDeps:
         from trajectoryhub.pipeline import _HAS_REWARD
         assert _HAS_REWARD is True
 
-    def test_adapter_map_populated(self):
+    def test_adapter_registry_populated(self):
         """适配器注册表应包含 openhands 和 sweagent."""
-        from trajectoryhub.pipeline import _ADAPTER_MAP
-        assert "openhands" in _ADAPTER_MAP
-        assert "sweagent" in _ADAPTER_MAP
-        assert "swe-agent" in _ADAPTER_MAP
+        from agentrecorder.adapters import get_adapter, list_adapters
+        assert "openhands" in list_adapters()
+        assert "sweagent" in list_adapters()
+        assert "swe-agent" in list_adapters()
+        assert get_adapter("openhands") is not None
+        assert get_adapter("sweagent") is not None

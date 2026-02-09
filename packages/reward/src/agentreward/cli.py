@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 import click
+from knowlyrcore.domain import get_domain_profile, load_domain_profile
 
 from agentreward import __version__
 from agentreward.config import RewardConfig
@@ -13,6 +14,13 @@ from agentreward.reward import RewardEngine
 from agentreward.rubrics import get_default_rubric_set
 from agentreward.preferences import build_preferences, preferences_summary, preferences_to_dicts
 from agentreward.calibration import calibrate
+
+
+def _load_profile(domain: str):
+    """加载领域 profile，支持内置名称或 JSON 文件路径."""
+    if Path(domain).is_file():
+        return load_domain_profile(domain)
+    return get_domain_profile(domain)
 
 
 @click.group()
@@ -53,6 +61,10 @@ def main():
     default="anthropic",
     help="LLM 提供商",
 )
+@click.option(
+    "-d", "--domain", type=str, default="coding",
+    help="Agent 领域 (coding / browser / generic / 自定义 profile 路径)",
+)
 def score(
     trajectory_file: str,
     output: Optional[str],
@@ -60,6 +72,7 @@ def score(
     model_weight: float,
     model: str,
     provider: str,
+    domain: str,
 ):
     """对单条轨迹计算 Reward
 
@@ -77,13 +90,17 @@ def score(
             err=True,
         )
 
+    # 加载领域 profile
+    profile = _load_profile(domain)
+
     config = RewardConfig(
         rule_weight=rule_weight,
         model_weight=model_weight,
         model_name=model,
         provider=provider,
+        domain=domain,
     )
-    engine = RewardEngine(config)
+    engine = RewardEngine(config, profile=profile)
     result = engine.score(trajectory)
 
     result_dict = result.to_dict()

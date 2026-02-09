@@ -24,6 +24,7 @@ class RewardConfig:
     provider: str = "anthropic"
     temperature: float = 0.1
     max_retries: int = 3
+    domain: str = "coding"
 
     def __post_init__(self):
         """Validate weights sum to 1.0."""
@@ -44,4 +45,5 @@ class RewardConfig:
             "provider": self.provider,
             "temperature": self.temperature,
             "max_retries": self.max_retries,
+            "domain": self.domain,
         }

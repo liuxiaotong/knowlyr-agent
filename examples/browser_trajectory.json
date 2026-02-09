@@ -1,0 +1,101 @@
+{
+  "task": {
+    "task_id": "browser-001",
+    "description": "在 GitHub 上搜索 knowlyr-agent 仓库并打开 README",
+    "domain": "browser"
+  },
+  "agent": "browser-agent",
+  "model": "claude-sonnet-4-20250514",
+  "steps": [
+    {
+      "step_id": 1,
+      "thought": "先导航到 GitHub 首页",
+      "tool_call": {
+        "name": "navigate",
+        "parameters": {"url": "https://github.com"}
+      },
+      "tool_result": {
+        "output": "页面加载完成: GitHub",
+        "exit_code": 0
+      },
+      "timestamp": "2026-01-15T10:00:00Z"
+    },
+    {
+      "step_id": 2,
+      "thought": "在搜索框输入仓库名",
+      "tool_call": {
+        "name": "type_text",
+        "parameters": {"element_id": "search-input", "text": "knowlyr-agent"}
+      },
+      "tool_result": {
+        "output": "文本已输入",
+        "exit_code": 0
+      },
+      "timestamp": "2026-01-15T10:00:05Z"
+    },
+    {
+      "step_id": 3,
+      "thought": "点击搜索按钮",
+      "tool_call": {
+        "name": "click",
+        "parameters": {"element_id": "search-button"}
+      },
+      "tool_result": {
+        "output": "搜索结果页面加载完成",
+        "exit_code": 0
+      },
+      "timestamp": "2026-01-15T10:00:08Z"
+    },
+    {
+      "step_id": 4,
+      "thought": "看一下搜索结果",
+      "tool_call": {
+        "name": "screenshot",
+        "parameters": {}
+      },
+      "tool_result": {
+        "output": "截图: 显示搜索结果列表，第一个是 liuxiaotong/knowlyr-agent",
+        "exit_code": 0
+      },
+      "timestamp": "2026-01-15T10:00:10Z"
+    },
+    {
+      "step_id": 5,
+      "thought": "点击第一个搜索结果",
+      "tool_call": {
+        "name": "click",
+        "parameters": {"element_id": "result-0"}
+      },
+      "tool_result": {
+        "output": "页面加载完成: knowlyr-agent 仓库主页",
+        "exit_code": 0
+      },
+      "timestamp": "2026-01-15T10:00:12Z"
+    },
+    {
+      "step_id": 6,
+      "thought": "README 已经显示在仓库主页上，任务完成",
+      "tool_call": {
+        "name": "submit",
+        "parameters": {"answer": "README 已在仓库主页展示"}
+      },
+      "tool_result": {
+        "output": "任务已提交",
+        "exit_code": 0
+      },
+      "timestamp": "2026-01-15T10:00:15Z"
+    }
+  ],
+  "outcome": {
+    "success": true,
+    "score": 1.0,
+    "tests_passed": 0,
+    "tests_failed": 0,
+    "total_steps": 6,
+    "total_tokens": 2500
+  },
+  "metadata": {
+    "start_url": "https://github.com",
+    "browser": "chromium"
+  }
+}

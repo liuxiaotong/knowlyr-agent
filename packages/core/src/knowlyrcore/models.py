@@ -29,17 +29,20 @@ class ToolResult(BaseModel):
 class TaskInfo(BaseModel):
     """任务信息.
 
-    描述一个待执行的代码任务，包含仓库、commit、测试命令等。
+    描述一个待执行的任务，支持任意领域。coding 特有字段（repo/base_commit 等）
+    保留供向后兼容，非 coding 领域可忽略。
 
     Attributes:
         task_id: 任务唯一标识
         description: 任务描述
-        type: 任务类型 (如 bug_fix, feature, refactor)
-        language: 编程语言
+        type: 任务类型 (如 bug_fix, feature, qa_check)
+        language: 编程语言 (coding 领域)
         difficulty: 难度等级 (easy / medium / hard)
-        repo: 目标仓库 (如 "owner/repo")
-        base_commit: 基础 commit hash
-        test_command: 测试命令
+        repo: 目标仓库 (coding 领域, 如 "owner/repo")
+        base_commit: 基础 commit hash (coding 领域)
+        test_command: 测试命令 (coding 领域)
+        domain: 所属领域 (coding / browser / generic / 自定义)
+        success_criteria: 成功判定描述 (领域无关)
         metadata: 额外元数据
     """
 
@@ -51,4 +54,6 @@ class TaskInfo(BaseModel):
     repo: str = ""
     base_commit: str = ""
     test_command: str = ""
+    domain: str = ""
+    success_criteria: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
