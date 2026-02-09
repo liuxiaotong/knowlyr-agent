@@ -68,6 +68,15 @@ def score(
     with open(trajectory_file, "r", encoding="utf-8") as f:
         trajectory = json.load(f)
 
+    # 检查是否有可识别的步骤
+    steps = trajectory.get("steps", [])
+    if not steps:
+        click.echo(
+            "⚠ 未找到 steps 字段，可能输入的是原始 Agent 日志而非标准轨迹格式。\n"
+            "  请先用 knowlyr-recorder convert 转换后再评分。",
+            err=True,
+        )
+
     config = RewardConfig(
         rule_weight=rule_weight,
         model_weight=model_weight,

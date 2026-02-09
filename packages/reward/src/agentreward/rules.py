@@ -9,6 +9,32 @@ from __future__ import annotations
 from typing import Any
 
 
+def _normalize_step(step: dict[str, Any]) -> tuple[str, dict[str, Any], str]:
+    """从步骤字典中提取 tool/params/output，兼容两种格式.
+
+    格式 1（简单）: {tool, params, output}
+    格式 2（recorder）: {tool_call: {name, parameters}, tool_result: {output}}
+
+    Returns:
+        (tool_name, params_dict, output_str)
+    """
+    # 格式 1
+    tool = step.get("tool", "")
+    params = step.get("params", {})
+    output = step.get("output", "")
+
+    # 格式 2: recorder 转换输出
+    if not tool and "tool_call" in step:
+        tc = step["tool_call"]
+        tool = tc.get("name", "")
+        params = tc.get("parameters", {})
+    if not output and "tool_result" in step:
+        tr = step["tool_result"]
+        output = tr.get("output", "")
+
+    return tool, params, output
+
+
 def check_redundancy(steps: list[dict[str, Any]]) -> list[float]:
     """Detect redundant operations in a trajectory.
 
@@ -19,9 +45,9 @@ def check_redundancy(steps: list[dict[str, Any]]) -> list[float]:
 
     Args:
         steps: List of step dicts, each with at least:
-            - tool: str (tool name)
+            - tool: str (tool name) 或 tool_call: {name, parameters}
             - params: dict (tool parameters)
-            - output: str (tool output, optional)
+            - output: str (tool output, optional) 或 tool_result: {output}
 
     Returns:
         List of scores per step, 1.0 = non-redundant, 0.0 = fully redundant
@@ -33,8 +59,7 @@ def check_redundancy(steps: list[dict[str, Any]]) -> list[float]:
     seen_calls: list[tuple[str, str]] = []  # (tool, normalized_params)
 
     for i, step in enumerate(steps):
-        tool = step.get("tool", "")
-        params = step.get("params", {})
+        tool, params, _output = _normalize_step(step)
         score = 1.0
 
         # Create a normalized key for this call
@@ -158,8 +183,7 @@ def check_regression(steps: list[dict[str, Any]]) -> list[float]:
     edits_history: list[dict[str, Any]] = []  # Track past edits
 
     for i, step in enumerate(steps):
-        tool = step.get("tool", "")
-        params = step.get("params", {})
+        tool, params, _output = _normalize_step(step)
 
         if tool in ("Edit", "edit_file", "sed", "write_file", "Write"):
             file_path = params.get("file_path", params.get("path", ""))
@@ -213,8 +237,7 @@ def check_info_utilization(steps: list[dict[str, Any]]) -> list[float]:
             # First step has no prior info to use
             scores.append(1.0)
         else:
-            tool = step.get("tool", "")
-            params = step.get("params", {})
+            tool, params, _step_output = _normalize_step(step)
             score = 1.0
 
             # If this is a search/read tool, it's gathering info — always OK
@@ -236,7 +259,7 @@ def check_info_utilization(steps: list[dict[str, Any]]) -> list[float]:
             scores.append(score)
 
         # Collect key info from this step's output
-        output = step.get("output", "")
+        _tool, _params, output = _normalize_step(step)
         if output:
             # Extract file paths, function names, variable names as "info pieces"
             for token in _extract_info_tokens(output):
@@ -260,11 +283,9 @@ def _find_last_read_index(
 ) -> int | None:
     """Find the index of the last read of a specific file."""
     for i in range(len(steps) - 1, -1, -1):
-        step = steps[i]
-        if step.get("tool", "") in ("read_file", "Read"):
-            step_path = step.get("params", {}).get(
-                "file_path", step.get("params", {}).get("path", "")
-            )
+        tool, params, _output = _normalize_step(steps[i])
+        if tool in ("read_file", "Read"):
+            step_path = params.get("file_path", params.get("path", ""))
             if step_path == file_path:
                 return i
     return None
@@ -275,11 +296,9 @@ def _find_last_edit_index(
 ) -> int | None:
     """Find the index of the last edit of a specific file."""
     for i in range(len(steps) - 1, -1, -1):
-        step = steps[i]
-        if step.get("tool", "") in ("Edit", "edit_file", "Write", "write_file"):
-            step_path = step.get("params", {}).get(
-                "file_path", step.get("params", {}).get("path", "")
-            )
+        tool, params, _output = _normalize_step(steps[i])
+        if tool in ("Edit", "edit_file", "Write", "write_file"):
+            step_path = params.get("file_path", params.get("path", ""))
             if step_path == file_path:
                 return i
     return None

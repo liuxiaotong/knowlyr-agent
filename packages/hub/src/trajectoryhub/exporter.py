@@ -527,16 +527,28 @@ If you use this dataset, please cite:
         return records
 
     def _load_preferences(self) -> List[Dict[str, Any]]:
-        """从 JSONL 文件加载偏好对."""
+        """加载偏好对，兼容 JSON 数组和 JSONL 两种格式."""
         records = []
         if not self.preferences_dir or not self.preferences_dir.exists():
             return records
 
         with open(self.preferences_dir, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    records.append(json.loads(line))
+            content = f.read().strip()
+
+        if not content:
+            return records
+
+        # 尝试 JSON 数组格式（knowlyr-reward preferences 输出）
+        if content.startswith("["):
+            data = json.loads(content)
+            if isinstance(data, list):
+                return data
+
+        # 回退到 JSONL 格式（Pipeline 内部生成）
+        for line in content.splitlines():
+            line = line.strip()
+            if line:
+                records.append(json.loads(line))
         return records
 
     def _steps_to_text(self, steps: List[Dict[str, Any]]) -> str:
