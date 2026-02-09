@@ -119,3 +119,9 @@ graph LR
 ## License
 
 MIT
+
+---
+
+<div align="center">
+<sub><a href="https://github.com/liuxiaotong">knowlyr</a> 数据工程生态 · Agent 轨迹数据工程</sub>
+</div>
