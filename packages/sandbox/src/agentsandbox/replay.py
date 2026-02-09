@@ -1,9 +1,12 @@
 """Trajectory replay - 轨迹重放功能."""
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from agentsandbox.sandbox import Sandbox
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -103,11 +106,44 @@ def replay_trajectory(sandbox: Sandbox, trajectory: Trajectory) -> ReplayResult:
 
     Returns:
         ReplayResult 重放结果
-
-    Raises:
-        NotImplementedError: 当前为 stub 实现
     """
-    raise NotImplementedError(
-        "replay_trajectory() 尚未实现。"
-        "计划功能: 逐步执行轨迹 → 比较输出 → 记录偏离 → 生成报告"
+    total = len(trajectory.steps)
+    logger.info("开始重放轨迹: %d 步", total)
+
+    details = []
+    divergence_step = -1
+    completed = 0
+
+    for i, step in enumerate(trajectory.steps):
+        result = sandbox.execute_tool(step.tool_name, step.params)
+        completed += 1
+
+        diverged = False
+        if step.expected_output is not None and result.output.strip() != step.expected_output.strip():
+            diverged = True
+            if divergence_step == -1:
+                divergence_step = i
+                logger.warning("轨迹偏离 (step %d): tool=%s", i, step.tool_name)
+
+        details.append({
+            "step": i,
+            "tool_name": step.tool_name,
+            "exit_code": result.exit_code,
+            "diverged": diverged,
+            "output_preview": result.output[:200] if result.output else "",
+        })
+
+        if not result.success:
+            logger.warning("步骤执行失败 (step %d): %s -> exit_code=%d",
+                          i, step.tool_name, result.exit_code)
+
+    success = divergence_step == -1 and all(d["exit_code"] == 0 for d in details)
+    logger.info("重放完成: %d/%d 步, success=%s", completed, total, success)
+
+    return ReplayResult(
+        success=success,
+        divergence_step=divergence_step,
+        details=details,
+        total_steps=total,
+        completed_steps=completed,
     )

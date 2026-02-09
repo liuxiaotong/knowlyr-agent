@@ -4,9 +4,11 @@ import json
 import sys
 
 import click
+import docker
 
 from agentsandbox import __version__
 from agentsandbox.config import SandboxConfig, TaskConfig
+from agentsandbox.sandbox import Sandbox, _LABEL
 
 
 @click.group()
@@ -40,7 +42,7 @@ def create(
 
     根据 Git 仓库和 commit 创建隔离的 Docker 执行环境。
     """
-    _sandbox_config = SandboxConfig(
+    sandbox_config = SandboxConfig(
         image=image,
         timeout=timeout,
         memory_limit=memory,
@@ -59,16 +61,15 @@ def create(
         sys.exit(1)
 
     click.echo("正在创建沙箱...")
-    click.echo(f"  仓库: {repo}")
-    click.echo(f"  Commit: {commit}")
-    click.echo(f"  镜像: {image}")
-    click.echo(f"  超时: {timeout}s")
-    click.echo(f"  内存: {memory}")
-    click.echo(f"  CPU: {cpu}")
-
-    # TODO: 实际创建沙箱
-    click.echo("\n[未实现] 沙箱创建功能尚在开发中", err=True)
-    sys.exit(1)
+    try:
+        sandbox = Sandbox.create(sandbox_config, task_config)
+        click.echo(f"沙箱已创建: {sandbox.container_id}")
+        click.echo(f"  镜像: {image}")
+        click.echo(f"  仓库: {repo}")
+        click.echo(f"  Commit: {commit}")
+    except Exception as e:
+        click.echo(f"创建失败: {e}", err=True)
+        sys.exit(1)
 
 
 @main.command("exec")
@@ -88,13 +89,31 @@ def exec_tool(sandbox_id: str, tool: str, params: str):
         click.echo(f"  参数解析失败: {e}", err=True)
         sys.exit(1)
 
-    click.echo(f"在沙箱 {sandbox_id} 中执行工具...")
-    click.echo(f"  工具: {tool}")
-    click.echo(f"  参数: {json.dumps(tool_params, ensure_ascii=False, indent=2)}")
+    try:
+        client = docker.from_env()
+        containers = client.containers.list(filters={"label": _LABEL})
+        container = next(
+            (c for c in containers if c.short_id == sandbox_id or c.id.startswith(sandbox_id)),
+            None,
+        )
+        if not container:
+            click.echo(f"沙箱不存在: {sandbox_id}", err=True)
+            sys.exit(1)
 
-    # TODO: 实际执行工具
-    click.echo("\n[未实现] 工具执行功能尚在开发中", err=True)
-    sys.exit(1)
+        # 构建临时 Sandbox 对象来执行工具
+        sandbox = Sandbox(SandboxConfig())
+        sandbox._container = container
+        sandbox._container_id = container.short_id
+
+        result = sandbox.execute_tool(tool, tool_params)
+        if result.output:
+            click.echo(result.output)
+        if result.error:
+            click.echo(f"错误: {result.error}", err=True)
+        sys.exit(result.exit_code)
+    except Exception as e:
+        click.echo(f"执行失败: {e}", err=True)
+        sys.exit(1)
 
 
 @main.command()
@@ -104,11 +123,25 @@ def reset(sandbox_id: str):
 
     SANDBOX_ID: 目标沙箱 ID
     """
-    click.echo(f"正在重置沙箱 {sandbox_id}...")
+    try:
+        client = docker.from_env()
+        containers = client.containers.list(filters={"label": _LABEL})
+        container = next(
+            (c for c in containers if c.short_id == sandbox_id or c.id.startswith(sandbox_id)),
+            None,
+        )
+        if not container:
+            click.echo(f"沙箱不存在: {sandbox_id}", err=True)
+            sys.exit(1)
 
-    # TODO: 实际重置沙箱
-    click.echo("\n[未实现] 沙箱重置功能尚在开发中", err=True)
-    sys.exit(1)
+        sandbox = Sandbox(SandboxConfig())
+        sandbox._container = container
+        sandbox._container_id = container.short_id
+        sandbox.reset()
+        click.echo(f"沙箱已重置: {sandbox_id}")
+    except Exception as e:
+        click.echo(f"重置失败: {e}", err=True)
+        sys.exit(1)
 
 
 @main.command()
@@ -123,26 +156,55 @@ def replay(sandbox_id: str, trajectory_file: str):
     with open(trajectory_file, "r", encoding="utf-8") as f:
         trajectory_data = json.load(f)
 
-    from agentsandbox.replay import Trajectory
+    from agentsandbox.replay import Trajectory, replay_trajectory
 
     trajectory = Trajectory.from_dict(trajectory_data)
 
-    click.echo(f"在沙箱 {sandbox_id} 中重放轨迹...")
-    click.echo(f"  步骤数: {len(trajectory.steps)}")
-    click.echo(f"  元数据: {json.dumps(trajectory.metadata, ensure_ascii=False)}")
+    try:
+        client = docker.from_env()
+        containers = client.containers.list(filters={"label": _LABEL})
+        container = next(
+            (c for c in containers if c.short_id == sandbox_id or c.id.startswith(sandbox_id)),
+            None,
+        )
+        if not container:
+            click.echo(f"沙箱不存在: {sandbox_id}", err=True)
+            sys.exit(1)
 
-    # TODO: 实际重放轨迹
-    click.echo("\n[未实现] 轨迹重放功能尚在开发中", err=True)
-    sys.exit(1)
+        sandbox = Sandbox(SandboxConfig())
+        sandbox._container = container
+        sandbox._container_id = container.short_id
+
+        click.echo(f"重放轨迹: {len(trajectory.steps)} 步")
+        result = replay_trajectory(sandbox, trajectory)
+
+        click.echo(f"完成: {result.completed_steps}/{result.total_steps} 步")
+        click.echo(f"成功: {result.success}")
+        if result.divergence_step >= 0:
+            click.echo(f"首次偏离: step {result.divergence_step}")
+    except Exception as e:
+        click.echo(f"重放失败: {e}", err=True)
+        sys.exit(1)
 
 
 @main.command("list")
 def list_sandboxes():
     """列出活跃的沙箱"""
-    click.echo("活跃沙箱列表:")
+    try:
+        client = docker.from_env()
+        containers = client.containers.list(filters={"label": _LABEL})
 
-    # TODO: 查询 Docker 容器
-    click.echo("  (无活跃沙箱)")
+        if not containers:
+            click.echo("  (无活跃沙箱)")
+            return
+
+        click.echo(f"活跃沙箱 ({len(containers)} 个):")
+        for c in containers:
+            click.echo(f"  {c.short_id}  {c.image.tags[0] if c.image.tags else c.image.short_id}"
+                       f"  {c.status}")
+    except docker.errors.DockerException as e:
+        click.echo(f"Docker 连接失败: {e}", err=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

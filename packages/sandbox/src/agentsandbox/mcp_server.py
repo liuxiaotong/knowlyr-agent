@@ -1,6 +1,7 @@
 """AgentSandbox MCP Server - Model Context Protocol 服务."""
 
 import json
+import logging
 from typing import Any, Dict, List
 
 try:
@@ -13,7 +14,13 @@ except ImportError:
     HAS_MCP = False
 
 from agentsandbox.config import SandboxConfig, TaskConfig
-from agentsandbox.replay import Trajectory
+from agentsandbox.replay import Trajectory, replay_trajectory
+from agentsandbox.sandbox import Sandbox
+
+logger = logging.getLogger(__name__)
+
+# 活跃沙箱映射: sandbox_id -> Sandbox
+_sandboxes: Dict[str, Sandbox] = {}
 
 
 def create_server() -> "Server":
@@ -131,63 +138,86 @@ def create_server() -> "Server":
                 language=arguments.get("language", "python"),
             )
 
-            # Validate task config
             errors = task_config.validate()
             if errors:
                 return [TextContent(type="text", text="配置错误:\n" + "\n".join(errors))]
 
-            # TODO: 实际创建沙箱
-            return [
-                TextContent(
-                    type="text",
-                    text="[未实现] create_sandbox 将创建 Docker 沙箱:\n"
-                    f"- 仓库: {task_config.repo_url}\n"
-                    f"- Commit: {task_config.base_commit}\n"
-                    f"- 镜像: {sandbox_config.image}\n"
-                    f"- 超时: {sandbox_config.timeout}s",
-                )
-            ]
+            try:
+                sandbox = Sandbox.create(sandbox_config, task_config)
+                sandbox_id = sandbox.container_id
+                _sandboxes[sandbox_id] = sandbox
+                logger.info("MCP 创建沙箱: %s", sandbox_id)
+                return [
+                    TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "sandbox_id": sandbox_id,
+                            "image": sandbox_config.image,
+                            "repo_url": task_config.repo_url,
+                            "base_commit": task_config.base_commit,
+                        }, ensure_ascii=False),
+                    )
+                ]
+            except Exception as e:
+                logger.exception("MCP 创建沙箱失败")
+                return [TextContent(type="text", text=f"创建沙箱失败: {e}")]
 
         elif name == "execute_tool":
             sandbox_id = arguments["sandbox_id"]
             tool_name = arguments["tool_name"]
             params = arguments.get("params", {})
 
-            # TODO: 在实际沙箱中执行工具
+            sandbox = _sandboxes.get(sandbox_id)
+            if not sandbox:
+                return [TextContent(type="text", text=f"沙箱不存在: {sandbox_id}")]
+
+            result = sandbox.execute_tool(tool_name, params)
             return [
                 TextContent(
                     type="text",
-                    text=f"[未实现] execute_tool 将在沙箱 {sandbox_id} 中执行:\n"
-                    f"- 工具: {tool_name}\n"
-                    f"- 参数: {json.dumps(params, ensure_ascii=False)}",
+                    text=json.dumps({
+                        "output": result.output,
+                        "exit_code": result.exit_code,
+                        "error": result.error,
+                    }, ensure_ascii=False),
                 )
             ]
 
         elif name == "reset_sandbox":
             sandbox_id = arguments["sandbox_id"]
 
-            # TODO: 重置沙箱
-            return [
-                TextContent(
-                    type="text",
-                    text=f"[未实现] reset_sandbox 将重置沙箱 {sandbox_id} 到初始状态",
-                )
-            ]
+            sandbox = _sandboxes.get(sandbox_id)
+            if not sandbox:
+                return [TextContent(type="text", text=f"沙箱不存在: {sandbox_id}")]
+
+            try:
+                sandbox.reset()
+                return [TextContent(type="text", text=f"沙箱已重置: {sandbox_id}")]
+            except Exception as e:
+                logger.exception("MCP 重置沙箱失败: %s", sandbox_id)
+                return [TextContent(type="text", text=f"重置失败: {e}")]
 
         elif name == "replay_trajectory":
             sandbox_id = arguments["sandbox_id"]
             trajectory_data = arguments["trajectory"]
 
-            trajectory = Trajectory.from_dict(trajectory_data)
-            step_count = len(trajectory.steps)
+            sandbox = _sandboxes.get(sandbox_id)
+            if not sandbox:
+                return [TextContent(type="text", text=f"沙箱不存在: {sandbox_id}")]
 
-            # TODO: 实际重放轨迹
+            trajectory = Trajectory.from_dict(trajectory_data)
+            result = replay_trajectory(sandbox, trajectory)
+
             return [
                 TextContent(
                     type="text",
-                    text=f"[未实现] replay_trajectory 将在沙箱 {sandbox_id} 中重放:\n"
-                    f"- 步骤数: {step_count}\n"
-                    f"- 元数据: {json.dumps(trajectory.metadata, ensure_ascii=False)}",
+                    text=json.dumps({
+                        "success": result.success,
+                        "total_steps": result.total_steps,
+                        "completed_steps": result.completed_steps,
+                        "divergence_step": result.divergence_step,
+                        "details": result.details,
+                    }, ensure_ascii=False),
                 )
             ]
 
