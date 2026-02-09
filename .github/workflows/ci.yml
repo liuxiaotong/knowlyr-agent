@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - run: pip install ruff
+
+      - run: ruff check packages/
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install all packages in dev mode
+        run: |
+          for pkg in sandbox recorder reward hub; do
+            pip install -e "packages/$pkg[dev]"
+          done
+
+      - name: Test sandbox
+        run: python -m pytest packages/sandbox/tests/ -v
+
+      - name: Test recorder
+        run: python -m pytest packages/recorder/tests/ -v
+
+      - name: Test reward
+        run: python -m pytest packages/reward/tests/ -v
+
+      - name: Test hub
+        run: python -m pytest packages/hub/tests/ -v

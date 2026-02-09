@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from agentsandbox.sandbox import Sandbox
-from agentsandbox.tools import ToolResult
 
 
 @dataclass

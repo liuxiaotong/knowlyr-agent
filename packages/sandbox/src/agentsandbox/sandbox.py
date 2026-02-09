@@ -1,6 +1,5 @@
 """Core sandbox - Docker 容器化执行环境."""
 
-from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from agentsandbox.config import SandboxConfig, TaskConfig

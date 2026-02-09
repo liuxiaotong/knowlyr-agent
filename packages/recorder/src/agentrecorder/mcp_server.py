@@ -1,6 +1,5 @@
 """AgentRecorder MCP Server - Model Context Protocol 服务."""
 
-import json
 from pathlib import Path
 from typing import Any, Dict, List
 

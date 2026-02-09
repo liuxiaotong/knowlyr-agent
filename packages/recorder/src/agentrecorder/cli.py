@@ -1,6 +1,5 @@
 """AgentRecorder CLI - 命令行界面."""
 
-import json
 import sys
 from pathlib import Path
 from typing import Optional
@@ -50,7 +49,7 @@ def convert(log_path: str, framework: str, output: Optional[str]):
         click.echo(f"日志格式不匹配 {framework}: {log_path}", err=True)
         sys.exit(1)
 
-    click.echo(f"正在转换日志...")
+    click.echo("正在转换日志...")
     click.echo(f"  文件: {log_path}")
     click.echo(f"  框架: {framework}")
 
@@ -154,7 +153,7 @@ def batch(log_dir: str, framework: str, output: str, pattern: str):
         click.echo(f"不支持的框架: {framework}", err=True)
         sys.exit(1)
 
-    click.echo(f"正在批量转换...")
+    click.echo("正在批量转换...")
     click.echo(f"  目录: {log_dir}")
     click.echo(f"  框架: {framework}")
     click.echo(f"  模式: {pattern}")

@@ -2,8 +2,6 @@
 
 import json
 import sys
-from pathlib import Path
-from typing import Optional
 
 import click
 
@@ -42,7 +40,7 @@ def create(
 
     根据 Git 仓库和 commit 创建隔离的 Docker 执行环境。
     """
-    sandbox_config = SandboxConfig(
+    _sandbox_config = SandboxConfig(
         image=image,
         timeout=timeout,
         memory_limit=memory,

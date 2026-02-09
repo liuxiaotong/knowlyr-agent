@@ -134,7 +134,7 @@ def create_server() -> "Server":
             # Validate task config
             errors = task_config.validate()
             if errors:
-                return [TextContent(type="text", text=f"配置错误:\n" + "\n".join(errors))]
+                return [TextContent(type="text", text="配置错误:\n" + "\n".join(errors))]
 
             # TODO: 实际创建沙箱
             return [
