@@ -6,10 +6,13 @@ providing fine-grained scores and rationale.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
 from agentreward.rubrics import Rubric
+
+logger = logging.getLogger(__name__)
 
 
 # --- Prompt Template ---
@@ -193,6 +196,8 @@ def judge_trajectory(
     task_description = trajectory.get("task", "")
     total_steps = len(steps)
     judgments = []
+    logger.info("LLM Judge: %d 步, %d 个 rubric, model=%s",
+                total_steps, len(rubrics), config.model)
 
     context_parts: list[str] = []
 

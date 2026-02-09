@@ -8,9 +8,12 @@
 """
 
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -85,6 +88,7 @@ class DatasetExporter:
         """
         try:
             trajectories = self._load_trajectories()
+            logger.info("导出 SFT: 加载 %d 条轨迹", len(trajectories))
             # 只选成功的轨迹，按 reward 排序
             successful = sorted(
                 [t for t in trajectories if t.get("success", False)],
@@ -137,6 +141,7 @@ class DatasetExporter:
                     }
                     f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
+            logger.info("SFT 导出完成: %d 条记录 -> %s", len(successful), output)
             return ExportResult(
                 success=True,
                 output_path=str(output),
@@ -145,6 +150,7 @@ class DatasetExporter:
             )
 
         except Exception as e:
+            logger.exception("SFT 导出失败")
             return ExportResult(
                 success=False,
                 format="sft",
@@ -183,6 +189,7 @@ class DatasetExporter:
 
         try:
             preferences = self._load_preferences()
+            logger.info("导出 DPO: 加载 %d 个偏好对", len(preferences))
 
             output = Path(output_path)
             output.parent.mkdir(parents=True, exist_ok=True)
@@ -210,6 +217,7 @@ class DatasetExporter:
                     }
                     f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
+            logger.info("DPO 导出完成: %d 条记录 -> %s", len(preferences), output)
             return ExportResult(
                 success=True,
                 output_path=str(output),
@@ -218,6 +226,7 @@ class DatasetExporter:
             )
 
         except Exception as e:
+            logger.exception("DPO 导出失败")
             return ExportResult(
                 success=False,
                 format="dpo",
@@ -251,6 +260,7 @@ class DatasetExporter:
         """
         try:
             trajectories = self._load_trajectories()
+            logger.info("导出 Benchmark: 加载 %d 条轨迹", len(trajectories))
 
             # 按 task_id 分组
             task_groups: Dict[str, List[Dict[str, Any]]] = {}
@@ -293,6 +303,7 @@ class DatasetExporter:
                     f.write(json.dumps(record, ensure_ascii=False) + "\n")
                     records.append(record)
 
+            logger.info("Benchmark 导出完成: %d 条记录 -> %s", len(records), output)
             return ExportResult(
                 success=True,
                 output_path=str(output),
@@ -301,6 +312,7 @@ class DatasetExporter:
             )
 
         except Exception as e:
+            logger.exception("Benchmark 导出失败")
             return ExportResult(
                 success=False,
                 format="benchmark",

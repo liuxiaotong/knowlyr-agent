@@ -1,9 +1,12 @@
 """核心录制器 - 将 Agent 日志转换为标准化轨迹."""
 
+import logging
 from pathlib import Path
 
 from agentrecorder.adapters.base import BaseAdapter
 from agentrecorder.schema import Trajectory
+
+logger = logging.getLogger(__name__)
 
 
 class Recorder:
@@ -41,12 +44,17 @@ class Recorder:
         if not log_path.exists():
             raise FileNotFoundError(f"日志文件不存在: {log_path}")
 
+        adapter_name = self.adapter.__class__.__name__
+        logger.info("转换日志: %s (适配器: %s)", log_path, adapter_name)
+
         if not self.adapter.validate(str(log_path)):
             raise ValueError(
-                f"日志格式不匹配适配器 {self.adapter.__class__.__name__}: {log_path}"
+                f"日志格式不匹配适配器 {adapter_name}: {log_path}"
             )
 
-        return self.adapter.parse(str(log_path))
+        trajectory = self.adapter.parse(str(log_path))
+        logger.info("转换完成: %d 步", len(trajectory.steps))
+        return trajectory
 
     def convert_batch(self, log_dir: str | Path, pattern: str = "*") -> list[Trajectory]:
         """批量转换目录下的日志文件.
@@ -68,6 +76,7 @@ class Recorder:
                 trajectory = self.adapter.parse(str(log_path))
                 trajectories.append(trajectory)
 
+        logger.info("批量转换完成: %d 个文件 -> %d 条轨迹", len(list(log_dir.glob(pattern))), len(trajectories))
         return trajectories
 
     def record(self, sandbox: object, agent: object) -> Trajectory:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -15,6 +16,8 @@ from agentreward.rules import (
     check_efficiency,
 )
 from agentreward.judge import judge_trajectory, JudgeConfig
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -107,6 +110,7 @@ class RewardEngine:
         steps = trajectory.get("steps", [])
         outcome = trajectory.get("outcome", {})
         reference_steps = trajectory.get("reference_steps", len(steps))
+        logger.debug("评分轨迹: %d 步, reference=%d", len(steps), reference_steps)
 
         if not steps:
             return TrajectoryReward(
@@ -206,6 +210,8 @@ class RewardEngine:
             + 0.1 * efficiency
         )
 
+        logger.info("评分完成: total=%.4f (outcome=%.4f, process=%.4f, efficiency=%.4f)",
+                    total_score, outcome_score, process_score, efficiency)
         return TrajectoryReward(
             step_rewards=step_rewards,
             total_score=total_score,

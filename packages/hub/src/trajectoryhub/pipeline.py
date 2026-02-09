@@ -4,6 +4,7 @@
 """
 
 import json
+import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,6 +12,8 @@ from typing import Any, Dict, List, Optional
 
 from trajectoryhub.config import AgentConfig, PipelineConfig
 from trajectoryhub.tasks import Task, TaskLoader
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -113,11 +116,13 @@ class Pipeline:
 
         # Step 1: 加载任务
         tasks = self._load_tasks()
+        logger.info("加载 %d 个任务，%d 个 agent 配置", len(tasks), len(self.config.agents))
 
         # Step 2: 对每个 task x agent 执行
         all_trajectories: List[Trajectory] = []
         completed = 0
         failed = 0
+        total_combinations = len(tasks) * len(self.config.agents)
 
         for task in tasks:
             for agent_config in self.config.agents:
@@ -127,14 +132,24 @@ class Pipeline:
                     completed += 1
                 except Exception:
                     failed += 1
+                    logger.exception(
+                        "任务执行失败: task=%s, agent=%s/%s",
+                        task.task_id, agent_config.framework, agent_config.model,
+                    )
+
+                if (completed + failed) % 10 == 0:
+                    logger.info("进度: %d/%d (成功=%d, 失败=%d)",
+                                completed + failed, total_combinations, completed, failed)
 
                 # Checkpoint
                 if (completed + failed) % self.config.checkpoint_interval == 0:
                     self._save_checkpoint(output_dir, all_trajectories, completed, failed)
+                    logger.debug("Checkpoint 已保存: %d 条轨迹", len(all_trajectories))
 
         # Step 3: 保存轨迹
         trajectories_path = output_dir / "trajectories.jsonl"
         self._save_trajectories(trajectories_path, all_trajectories)
+        logger.info("轨迹已保存: %s (%d 条)", trajectories_path, len(all_trajectories))
 
         # Step 4: 构建偏好对
         preferences_path = output_dir / "preferences.jsonl"
@@ -145,6 +160,7 @@ class Pipeline:
         self._run_quality_check(trajectories_path, quality_report_path)
 
         duration = time.time() - start_time
+        logger.info("Pipeline 完成: %d/%d 成功, 耗时 %.1fs", completed, len(tasks), duration)
 
         return PipelineResult(
             total_tasks=len(tasks),
@@ -231,6 +247,8 @@ class Pipeline:
         # 加载任务并过滤已完成的
         all_tasks = self._load_tasks()
         remaining_tasks = [t for t in all_tasks if t.task_id not in completed_ids]
+        logger.info("从 checkpoint 恢复: 已完成 %d, 剩余 %d 个任务",
+                     len(completed_ids), len(remaining_tasks))
 
         # 加载已有轨迹
         existing_trajectories: List[Trajectory] = []
@@ -254,6 +272,10 @@ class Pipeline:
                     completed += 1
                 except Exception:
                     failed += 1
+                    logger.exception(
+                        "任务执行失败 (resume): task=%s, agent=%s/%s",
+                        task.task_id, agent_config.framework, agent_config.model,
+                    )
 
         # 保存最终结果
         trajectories_path = output_dir / "trajectories.jsonl"

@@ -1,9 +1,12 @@
 """Core sandbox - Docker 容器化执行环境."""
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from agentsandbox.config import SandboxConfig, TaskConfig
 from agentsandbox.tools import ToolResult
+
+logger = logging.getLogger(__name__)
 
 
 class Sandbox:
@@ -52,6 +55,8 @@ class Sandbox:
         Raises:
             NotImplementedError: 当前为 stub 实现
         """
+        logger.info("创建沙箱: image=%s, repo=%s, commit=%s",
+                    config.image, task.repo_url, task.base_commit)
         raise NotImplementedError(
             "Sandbox.create() 尚未实现。"
             "计划功能: 创建 Docker 容器 → 克隆代码仓库 → checkout 指定 commit → 执行 setup 命令"
@@ -77,6 +82,7 @@ class Sandbox:
         Raises:
             NotImplementedError: 当前为 stub 实现
         """
+        logger.debug("执行工具: %s, params=%s", tool_name, params)
         raise NotImplementedError(
             f"Sandbox.execute_tool('{tool_name}') 尚未实现。"
             "计划功能: 将工具调用映射到 Docker exec 命令并捕获输出"
