@@ -62,12 +62,22 @@ pip install knowlyr-hub[all]
 
 每个子包提供独立的 MCP Server，共 14 个 Tools：
 
-| Server | Tools | 启动方式 |
-|--------|-------|---------|
-| knowlyr-sandbox | `create_sandbox`, `execute_tool`, `reset_sandbox`, `replay_trajectory` | <nobr><code>python -m agentsandbox.mcp_server</code></nobr> |
-| knowlyr-recorder | `convert_log`, `validate_log`, `get_schema` | <nobr><code>python -m agentrecorder.mcp_server</code></nobr> |
-| knowlyr-reward | `score_trajectory`, `compare_trajectories`, `build_preferences`, `list_rubrics` | <nobr><code>python -m agentreward.mcp_server</code></nobr> |
-| knowlyr-hub | `run_pipeline`, `export_dataset`, `pipeline_status` | <nobr><code>python -m trajectoryhub.mcp_server</code></nobr> |
+| Server | 启动方式 |
+|--------|---------|
+| knowlyr-sandbox | `python -m agentsandbox.mcp_server` |
+| knowlyr-recorder | `python -m agentrecorder.mcp_server` |
+| knowlyr-reward | `python -m agentreward.mcp_server` |
+| knowlyr-hub | `python -m trajectoryhub.mcp_server` |
+
+<details>
+<summary>14 Tools 详情</summary>
+
+- **sandbox**: `create_sandbox`, `execute_tool`, `reset_sandbox`, `replay_trajectory`
+- **recorder**: `convert_log`, `validate_log`, `get_schema`
+- **reward**: `score_trajectory`, `compare_trajectories`, `build_preferences`, `list_rubrics`
+- **hub**: `run_pipeline`, `export_dataset`, `pipeline_status`
+
+</details>
 
 ## 开发 / Development
 
