@@ -1,13 +1,15 @@
-.PHONY: test test-core test-sandbox test-recorder test-reward test-hub lint build clean
+.PHONY: test test-core test-sandbox test-recorder test-reward test-hub test-integration lint build clean
 
 PACKAGES = core sandbox recorder reward hub
 
-# 测试全部包
+# 测试全部包（含集成测试）
 test:
 	@for pkg in $(PACKAGES); do \
 		echo "\n=== Testing $$pkg ==="; \
 		cd packages/$$pkg && python -m pytest tests/ -v && cd ../..; \
 	done
+	@echo "\n=== Integration tests ==="
+	python -m pytest tests/integration/ -v
 
 # 单独测试
 test-core:
@@ -25,12 +27,15 @@ test-reward:
 test-hub:
 	cd packages/hub && python -m pytest tests/ -v
 
+test-integration:
+	python -m pytest tests/integration/ -v
+
 # Lint
 lint:
-	ruff check packages/
+	ruff check packages/ tests/
 
 lint-fix:
-	ruff check packages/ --fix
+	ruff check packages/ tests/ --fix
 
 # 构建全部包
 build:
