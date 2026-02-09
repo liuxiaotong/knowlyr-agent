@@ -102,6 +102,59 @@ def create_server() -> "Server":
                 },
             ),
             Tool(
+                name="process_log",
+                description="处理单个 Agent 日志文件，解析并评分生成标准轨迹",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "log_path": {
+                            "type": "string",
+                            "description": "Agent 日志文件路径",
+                        },
+                        "framework": {
+                            "type": "string",
+                            "enum": ["openhands", "sweagent", "swe-agent"],
+                            "description": "Agent 框架",
+                        },
+                        "output_dir": {
+                            "type": "string",
+                            "description": "输出目录 (默认: ./output)",
+                            "default": "./output",
+                        },
+                    },
+                    "required": ["log_path", "framework"],
+                },
+            ),
+            Tool(
+                name="process_logs_batch",
+                description="批量处理 Agent 日志目录，解析并评分生成标准轨迹",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "log_dir": {
+                            "type": "string",
+                            "description": "包含日志文件的目录",
+                        },
+                        "framework": {
+                            "type": "string",
+                            "enum": ["openhands", "sweagent", "swe-agent"],
+                            "description": "Agent 框架",
+                        },
+                        "pattern": {
+                            "type": "string",
+                            "description": "文件匹配模式 (默认: *)",
+                            "default": "*",
+                        },
+                        "output_dir": {
+                            "type": "string",
+                            "description": "输出目录 (默认: ./output)",
+                            "default": "./output",
+                        },
+                    },
+                    "required": ["log_dir", "framework"],
+                },
+            ),
+            Tool(
                 name="pipeline_status",
                 description="查看 Pipeline 执行状态和进度",
                 inputSchema={
@@ -192,6 +245,86 @@ def create_server() -> "Server":
                 ]
             else:
                 return [TextContent(type="text", text=f"导出失败: {result.error}")]
+
+        elif name == "process_log":
+            log_path = arguments["log_path"]
+            framework = arguments["framework"]
+            output_dir = arguments.get("output_dir", "./output")
+
+            config = PipelineConfig(output_dir=output_dir)
+            pipeline = Pipeline(config)
+
+            try:
+                traj = pipeline.run_from_log(log_path, framework)
+            except (RuntimeError, ValueError) as e:
+                return [TextContent(type="text", text=f"处理失败: {e}")]
+
+            return [
+                TextContent(
+                    type="text",
+                    text=f"日志处理完成:\n"
+                    f"- 任务 ID: {traj.task_id}\n"
+                    f"- 框架: {traj.agent_framework}\n"
+                    f"- 模型: {traj.agent_model}\n"
+                    f"- 步数: {traj.total_steps}\n"
+                    f"- 成功: {traj.success}\n"
+                    f"- Reward: {traj.reward:.3f}\n"
+                    f"- 耗时: {traj.duration_seconds:.1f}s",
+                )
+            ]
+
+        elif name == "process_logs_batch":
+            log_dir = arguments["log_dir"]
+            framework = arguments["framework"]
+            pattern = arguments.get("pattern", "*")
+            output_dir = arguments.get("output_dir", "./output")
+
+            config = PipelineConfig(output_dir=output_dir)
+            pipeline = Pipeline(config)
+
+            try:
+                trajectories = pipeline.run_batch_from_logs(log_dir, framework, pattern)
+            except (RuntimeError, ValueError) as e:
+                return [TextContent(type="text", text=f"批量处理失败: {e}")]
+
+            if not trajectories:
+                return [TextContent(type="text", text="没有找到匹配的日志文件。")]
+
+            # 保存轨迹
+            out_path = Path(output_dir)
+            out_path.mkdir(parents=True, exist_ok=True)
+            traj_path = out_path / "trajectories.jsonl"
+            with open(traj_path, "w", encoding="utf-8") as f:
+                for traj in trajectories:
+                    f.write(json.dumps({
+                        "task_id": traj.task_id,
+                        "agent_framework": traj.agent_framework,
+                        "agent_model": traj.agent_model,
+                        "steps": traj.steps,
+                        "total_steps": traj.total_steps,
+                        "success": traj.success,
+                        "reward": traj.reward,
+                        "step_rewards": traj.step_rewards,
+                        "duration_seconds": traj.duration_seconds,
+                        "metadata": traj.metadata,
+                    }, ensure_ascii=False) + "\n")
+
+            success_count = sum(1 for t in trajectories if t.success)
+            avg_reward = (
+                sum(t.reward for t in trajectories) / len(trajectories)
+                if trajectories else 0.0
+            )
+
+            return [
+                TextContent(
+                    type="text",
+                    text=f"批量处理完成:\n"
+                    f"- 轨迹数: {len(trajectories)}\n"
+                    f"- 成功率: {success_count}/{len(trajectories)}\n"
+                    f"- 平均 Reward: {avg_reward:.3f}\n"
+                    f"- 输出: {traj_path}",
+                )
+            ]
 
         elif name == "pipeline_status":
             output_dir = Path(arguments["output_dir"])

@@ -146,6 +146,123 @@ def export(
 
 
 @main.command()
+@click.argument("log_path", type=click.Path(exists=True))
+@click.option(
+    "-f",
+    "--framework",
+    type=click.Choice(["openhands", "sweagent", "swe-agent"]),
+    required=True,
+    help="Agent 框架",
+)
+@click.option("-o", "--output", type=click.Path(), default="./output", help="输出目录 (默认: ./output)")
+@click.option("--save", is_flag=True, help="保存轨迹到输出目录的 trajectories.jsonl")
+def process(log_path: str, framework: str, output: str, save: bool):
+    """处理单个 Agent 日志文件
+
+    LOG_PATH: Agent 日志文件路径 (OpenHands JSONL / SWE-agent JSON)
+    """
+    config = PipelineConfig(output_dir=output)
+    pipeline = Pipeline(config)
+
+    click.echo(f"处理日志: {log_path} ({framework})...")
+
+    try:
+        traj = pipeline.run_from_log(log_path, framework)
+    except (RuntimeError, ValueError) as e:
+        click.echo(f"处理失败: {e}", err=True)
+        sys.exit(1)
+
+    click.echo("处理完成:")
+    click.echo(f"  任务 ID: {traj.task_id}")
+    click.echo(f"  框架: {traj.agent_framework}")
+    click.echo(f"  模型: {traj.agent_model}")
+    click.echo(f"  步数: {traj.total_steps}")
+    click.echo(f"  成功: {traj.success}")
+    click.echo(f"  Reward: {traj.reward:.3f}")
+    click.echo(f"  耗时: {traj.duration_seconds:.1f}s")
+
+    if save:
+        output_dir = Path(output)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        traj_path = output_dir / "trajectories.jsonl"
+        with open(traj_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "task_id": traj.task_id,
+                "agent_framework": traj.agent_framework,
+                "agent_model": traj.agent_model,
+                "steps": traj.steps,
+                "total_steps": traj.total_steps,
+                "success": traj.success,
+                "reward": traj.reward,
+                "step_rewards": traj.step_rewards,
+                "duration_seconds": traj.duration_seconds,
+                "metadata": traj.metadata,
+            }, ensure_ascii=False) + "\n")
+        click.echo(f"  已保存: {traj_path}")
+
+
+@main.command("process-batch")
+@click.argument("log_dir", type=click.Path(exists=True))
+@click.option(
+    "-f",
+    "--framework",
+    type=click.Choice(["openhands", "sweagent", "swe-agent"]),
+    required=True,
+    help="Agent 框架",
+)
+@click.option("-o", "--output", type=click.Path(), default="./output", help="输出目录 (默认: ./output)")
+@click.option("-p", "--pattern", type=str, default="*", help="文件匹配模式 (默认: *)")
+def process_batch(log_dir: str, framework: str, output: str, pattern: str):
+    """批量处理 Agent 日志目录
+
+    LOG_DIR: 包含日志文件的目录
+    """
+    config = PipelineConfig(output_dir=output)
+    pipeline = Pipeline(config)
+
+    click.echo(f"批量处理日志: {log_dir} ({framework}, pattern={pattern})...")
+
+    try:
+        trajectories = pipeline.run_batch_from_logs(log_dir, framework, pattern)
+    except (RuntimeError, ValueError) as e:
+        click.echo(f"处理失败: {e}", err=True)
+        sys.exit(1)
+
+    if not trajectories:
+        click.echo("没有找到匹配的日志文件。")
+        return
+
+    # 保存轨迹
+    output_dir = Path(output)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    traj_path = output_dir / "trajectories.jsonl"
+    with open(traj_path, "w", encoding="utf-8") as f:
+        for traj in trajectories:
+            f.write(json.dumps({
+                "task_id": traj.task_id,
+                "agent_framework": traj.agent_framework,
+                "agent_model": traj.agent_model,
+                "steps": traj.steps,
+                "total_steps": traj.total_steps,
+                "success": traj.success,
+                "reward": traj.reward,
+                "step_rewards": traj.step_rewards,
+                "duration_seconds": traj.duration_seconds,
+                "metadata": traj.metadata,
+            }, ensure_ascii=False) + "\n")
+
+    # 统计
+    success_count = sum(1 for t in trajectories if t.success)
+    avg_reward = sum(t.reward for t in trajectories) / len(trajectories) if trajectories else 0.0
+
+    click.echo("批量处理完成:")
+    click.echo(f"  轨迹数: {len(trajectories)}")
+    click.echo(f"  成功率: {success_count}/{len(trajectories)}")
+    click.echo(f"  平均 Reward: {avg_reward:.3f}")
+    click.echo(f"  输出: {traj_path}")
+
+
+@main.command()
 @click.argument("output_dir", type=click.Path(exists=True))
 def status(output_dir: str):
     """查看 Pipeline 状态
