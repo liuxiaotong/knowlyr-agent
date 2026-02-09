@@ -2,5 +2,6 @@
 
 from agentrecorder.adapters.base import BaseAdapter
 from agentrecorder.adapters.openhands import OpenHandsAdapter
+from agentrecorder.adapters.sweagent import SWEAgentAdapter
 
-__all__ = ["BaseAdapter", "OpenHandsAdapter"]
+__all__ = ["BaseAdapter", "OpenHandsAdapter", "SWEAgentAdapter"]

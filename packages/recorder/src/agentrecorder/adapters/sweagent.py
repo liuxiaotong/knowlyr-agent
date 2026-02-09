@@ -10,10 +10,31 @@ SWE-agent 日志格式说明:
 """
 
 import json
+import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 from agentrecorder.adapters.base import BaseAdapter
-from agentrecorder.schema import Trajectory
+from agentrecorder.schema import Outcome, Step, ToolCall, Trajectory
+from knowlyrcore import TaskInfo, ToolResult
+
+logger = logging.getLogger(__name__)
+
+# SWE-agent action 到标准工具名的映射
+_ACTION_TOOL_MAP = {
+    "bash": "bash",
+    "edit": "edit_file",
+    "open": "read_file",
+    "scroll_up": "read_file",
+    "scroll_down": "read_file",
+    "search_dir": "search",
+    "search_file": "search",
+    "find_file": "search",
+    "create": "write_file",
+    "submit": "submit",
+    "exit": "finish",
+    "think": "think",
+}
 
 
 class SWEAgentAdapter(BaseAdapter):
@@ -41,13 +62,24 @@ class SWEAgentAdapter(BaseAdapter):
 
         Returns:
             标准化轨迹对象。
-
-        Raises:
-            NotImplementedError: 解析逻辑尚未实现。
         """
-        raise NotImplementedError(
-            "SWE-agent 适配器解析功能尚未实现。"
-            "请参考 SWE-agent 轨迹格式文档实现 history 到 Step 的映射。"
+        path = Path(log_path)
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        task_info = self._extract_task(data)
+        model = self._extract_model(data)
+        steps = self._parse_history(data.get("history", []))
+        outcome = self._determine_outcome(data, steps)
+        metadata = self._extract_metadata(data)
+
+        return Trajectory(
+            task=task_info,
+            agent="swe-agent",
+            model=model,
+            steps=steps,
+            outcome=outcome,
+            metadata=metadata,
         )
 
     def validate(self, log_path: str) -> bool:
@@ -74,3 +106,109 @@ class SWEAgentAdapter(BaseAdapter):
                 return "history" in data and "info" in data
         except (json.JSONDecodeError, OSError):
             return False
+
+    def _extract_task(self, data: dict) -> TaskInfo:
+        """从数据中提取任务信息."""
+        info = data.get("info", {})
+        instance_id = info.get("instance_id", data.get("instance_id", ""))
+        problem_statement = data.get("problem_statement", "")
+
+        return TaskInfo(
+            task_id=instance_id,
+            description=problem_statement,
+            repo=info.get("repo", ""),
+            base_commit=info.get("base_commit", ""),
+            metadata={"source": "swe-agent"},
+        )
+
+    def _extract_model(self, data: dict) -> str:
+        """提取模型名称."""
+        info = data.get("info", {})
+        return info.get("model_name", data.get("model_name_or_path", ""))
+
+    def _parse_history(self, history: list) -> list[Step]:
+        """将 history 数组转换为 Step 列表.
+
+        SWE-agent history 格式:
+        - 每个元素是 [action_dict, observation_str]
+        - action_dict 包含 action 名称和参数
+        - observation_str 是工具输出的字符串
+        """
+        steps = []
+        now = datetime.now(timezone.utc).isoformat()
+
+        for step_id, entry in enumerate(history):
+            if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+                continue
+
+            action_data, observation = entry[0], entry[1]
+
+            # action_data 可以是 dict 或 str
+            if isinstance(action_data, dict):
+                action_name = action_data.get("action", "unknown")
+                args = {k: v for k, v in action_data.items() if k != "action"}
+                thought = action_data.get("thought", "")
+            else:
+                # 纯字符串命令
+                action_name = "bash"
+                args = {"command": str(action_data)}
+                thought = ""
+
+            # 跳过 think 步骤（仅思考，无工具调用）
+            if action_name == "think":
+                continue
+
+            tool_name = _ACTION_TOOL_MAP.get(action_name, action_name)
+            obs_str = str(observation) if observation else ""
+
+            # 判断 exit_code
+            exit_code = 0
+            if action_name in ("bash", "run") and obs_str.startswith("Error"):
+                exit_code = 1
+
+            step = Step(
+                step_id=len(steps),
+                thought=thought,
+                tool_call=ToolCall(name=tool_name, parameters=args),
+                tool_result=ToolResult(output=obs_str, exit_code=exit_code),
+                timestamp=now,
+            )
+            steps.append(step)
+
+        return steps
+
+    def _determine_outcome(self, data: dict, steps: list[Step]) -> Outcome:
+        """判断执行结果."""
+        info = data.get("info", {})
+        exit_status = info.get("exit_status", "")
+
+        success = exit_status == "submitted"
+
+        # 模型统计
+        model_stats = info.get("model_stats", {})
+        total_tokens = (
+            model_stats.get("tokens_sent", 0)
+            + model_stats.get("tokens_received", 0)
+        )
+
+        return Outcome(
+            success=success,
+            total_steps=len(steps),
+            total_tokens=total_tokens,
+        )
+
+    def _extract_metadata(self, data: dict) -> dict:
+        """提取额外元数据."""
+        info = data.get("info", {})
+        metadata = {}
+
+        if info.get("instance_id"):
+            metadata["instance_id"] = info["instance_id"]
+        if info.get("model_stats"):
+            metadata["model_stats"] = info["model_stats"]
+        if info.get("exit_status"):
+            metadata["exit_status"] = info["exit_status"]
+        if data.get("environment"):
+            metadata["environment"] = data["environment"]
+
+        return metadata
