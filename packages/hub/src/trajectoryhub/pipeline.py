@@ -15,6 +15,40 @@ from trajectoryhub.tasks import TaskInfo, TaskLoader
 
 logger = logging.getLogger(__name__)
 
+# ── 可选依赖 (try/except) ──────────────────────────────────────────
+
+try:
+    import agentsandbox  # noqa: F401
+
+    _HAS_SANDBOX = True
+except ImportError:
+    _HAS_SANDBOX = False
+
+try:
+    from agentrecorder import Recorder
+    from agentrecorder.adapters import OpenHandsAdapter, SWEAgentAdapter
+
+    _HAS_RECORDER = True
+except ImportError:
+    _HAS_RECORDER = False
+
+try:
+    from agentreward.reward import RewardEngine
+
+    _HAS_REWARD = True
+except ImportError:
+    _HAS_REWARD = False
+
+# ── 适配器注册表 ───────────────────────────────────────────────────
+
+_ADAPTER_MAP = {}
+if _HAS_RECORDER:
+    _ADAPTER_MAP = {
+        "openhands": OpenHandsAdapter,
+        "sweagent": SWEAgentAdapter,
+        "swe-agent": SWEAgentAdapter,
+    }
+
 
 @dataclass
 class Trajectory:
@@ -176,11 +210,14 @@ class Pipeline:
         """运行单个任务.
 
         流程：
-        1. 创建沙箱环境 (agent-sandbox)
+        1. 创建沙箱环境 (knowlyr-sandbox)
         2. 在沙箱中运行 Agent (按 agent_config 配置)
-        3. 录制执行轨迹 (agent-recorder)
-        4. 计算 Reward (agent-reward)
+        3. 录制执行轨迹 (knowlyr-recorder)
+        4. 计算 Reward (knowlyr-reward)
         5. 返回 Trajectory
+
+        当 Agent 框架未安装时返回空轨迹。
+        如果只有日志文件而无需运行 Agent，请使用 run_from_log()。
 
         Args:
             task: 要执行的任务
@@ -189,24 +226,15 @@ class Pipeline:
         Returns:
             Trajectory: 执行轨迹及其 reward
         """
-        # TODO: 接入 agent-sandbox 创建沙箱
-        # sandbox = Sandbox(self.config.sandbox_config)
-        # sandbox.setup(task.repo, task.base_commit)
+        start_time = time.time()
 
-        # TODO: 接入 Agent 框架运行任务
-        # agent = AgentRunner(agent_config)
-        # raw_log = agent.run(task, sandbox)
+        # 当前 Agent 框架执行部分仍需外部集成
+        # 如需处理已有日志，请使用 run_from_log()
+        logger.debug(
+            "run_single: task=%s, agent=%s/%s (Agent 执行需外部集成)",
+            task.task_id, agent_config.framework, agent_config.model,
+        )
 
-        # TODO: 接入 agent-recorder 转换为标准轨迹
-        # recorder = Recorder()
-        # steps = recorder.parse(raw_log, framework=agent_config.framework)
-
-        # TODO: 接入 agent-reward 计算分数
-        # reward_calculator = RewardCalculator(self.config.reward_config)
-        # step_rewards = reward_calculator.score_steps(steps)
-        # total_reward = reward_calculator.aggregate(step_rewards)
-
-        # 当前返回空轨迹（等待原子模块就绪后替换）
         return Trajectory(
             task_id=task.task_id,
             agent_framework=agent_config.framework,
@@ -216,12 +244,93 @@ class Pipeline:
             success=False,
             reward=0.0,
             step_rewards=[],
-            duration_seconds=0.0,
+            duration_seconds=time.time() - start_time,
             metadata={
                 "task_description": task.description,
                 "task_type": task.type,
             },
         )
+
+    def run_from_log(
+        self,
+        log_path: str | Path,
+        framework: str,
+        task: Optional[TaskInfo] = None,
+    ) -> Trajectory:
+        """从已有日志文件生成带评分的轨迹.
+
+        这是处理已有 Agent 日志的主要入口。流程：
+        1. 使用 recorder 适配器解析日志 → 标准 Trajectory
+        2. 使用 reward engine 计算分数
+        3. 合并为 hub Trajectory 返回
+
+        Args:
+            log_path: Agent 日志文件路径。
+            framework: Agent 框架名 (openhands / sweagent)。
+            task: 可选的任务信息。不传则从日志中自动提取。
+
+        Returns:
+            Trajectory: 带 reward 评分的标准轨迹。
+
+        Raises:
+            RuntimeError: recorder 或 reward 未安装。
+            ValueError: 不支持的框架类型。
+        """
+        start_time = time.time()
+        log_path = Path(log_path)
+
+        # Step 1: 解析日志
+        recorder_traj = self._parse_log(log_path, framework)
+        logger.info("日志解析完成: %d 步 (%s)", len(recorder_traj.steps), framework)
+
+        # 合并 task 信息
+        if task is not None:
+            recorder_traj.task = task
+
+        # Step 2: Reward 评分
+        reward_result = self._score_trajectory(recorder_traj)
+
+        duration = time.time() - start_time
+
+        # Step 3: 转换为 hub Trajectory
+        return self._recorder_to_hub_trajectory(
+            recorder_traj, reward_result, duration,
+        )
+
+    def run_batch_from_logs(
+        self,
+        log_dir: str | Path,
+        framework: str,
+        pattern: str = "*",
+    ) -> List[Trajectory]:
+        """批量处理日志目录.
+
+        Args:
+            log_dir: 包含日志文件的目录。
+            framework: Agent 框架名。
+            pattern: 文件匹配模式。
+
+        Returns:
+            Trajectory 列表。
+        """
+        if not _HAS_RECORDER:
+            raise RuntimeError("批量处理需要安装 knowlyr-recorder: pip install knowlyr-recorder")
+
+        adapter_cls = _ADAPTER_MAP.get(framework)
+        if adapter_cls is None:
+            raise ValueError(f"不支持的框架: {framework}，支持: {list(_ADAPTER_MAP.keys())}")
+
+        recorder = Recorder(adapter_cls())
+        recorder_trajs = recorder.convert_batch(str(log_dir), pattern)
+
+        trajectories = []
+        for rtraj in recorder_trajs:
+            reward_result = self._score_trajectory(rtraj)
+            traj = self._recorder_to_hub_trajectory(rtraj, reward_result, 0.0)
+            trajectories.append(traj)
+
+        logger.info("批量处理完成: %d 条轨迹", len(trajectories))
+        return trajectories
 
     def resume(self, checkpoint_path: str) -> PipelineResult:
         """从 checkpoint 恢复执行.
@@ -297,6 +406,115 @@ class Pipeline:
             preferences_path=str(preferences_path),
             quality_report_path=str(quality_report_path),
             duration_seconds=duration,
+        )
+
+    # ------------------------------------------------------------------
+    # 集成方法 — recorder / reward
+    # ------------------------------------------------------------------
+
+    def _parse_log(self, log_path: Path, framework: str):
+        """使用 recorder 适配器解析日志.
+
+        Returns:
+            agentrecorder.schema.Trajectory (recorder 格式)
+        """
+        if not _HAS_RECORDER:
+            raise RuntimeError(
+                "日志解析需要安装 knowlyr-recorder: pip install knowlyr-recorder"
+            )
+
+        adapter_cls = _ADAPTER_MAP.get(framework)
+        if adapter_cls is None:
+            raise ValueError(
+                f"不支持的框架: {framework}，支持: {list(_ADAPTER_MAP.keys())}"
+            )
+
+        recorder = Recorder(adapter_cls())
+        return recorder.convert(str(log_path))
+
+    def _score_trajectory(self, recorder_traj) -> Optional[dict]:
+        """使用 reward engine 评分.
+
+        Args:
+            recorder_traj: agentrecorder.schema.Trajectory
+
+        Returns:
+            RewardResult 或 None (reward 未安装时)
+        """
+        if not _HAS_REWARD:
+            logger.debug("knowlyr-reward 未安装，跳过评分")
+            return None
+
+        engine = RewardEngine()
+
+        # 将 recorder 格式转换为 reward engine 输入
+        steps = [
+            {
+                "tool": step.tool_call.name,
+                "params": step.tool_call.parameters,
+                "output": step.tool_result.output if step.tool_result else "",
+            }
+            for step in recorder_traj.steps
+        ]
+
+        outcome = {
+            "success": recorder_traj.outcome.success,
+            "tests_passed": recorder_traj.outcome.tests_passed,
+            "tests_total": (
+                recorder_traj.outcome.tests_passed + recorder_traj.outcome.tests_failed
+            ),
+        }
+
+        result = engine.score({
+            "task": recorder_traj.task.description,
+            "steps": steps,
+            "outcome": outcome,
+        })
+
+        return result
+
+    def _recorder_to_hub_trajectory(
+        self,
+        recorder_traj,
+        reward_result,
+        duration: float,
+    ) -> Trajectory:
+        """将 recorder Trajectory + reward 结果合并为 hub Trajectory."""
+        # 将 recorder steps 转为 dict 列表
+        steps_dicts = []
+        for step in recorder_traj.steps:
+            steps_dicts.append({
+                "thought": step.thought,
+                "tool": step.tool_call.name,
+                "params": step.tool_call.parameters,
+                "output": step.tool_result.output if step.tool_result else "",
+                "exit_code": step.tool_result.exit_code if step.tool_result else 0,
+            })
+
+        # 提取 reward
+        total_reward = 0.0
+        step_rewards = []
+        if reward_result is not None:
+            total_reward = reward_result.total_score
+            step_rewards = [sr.total_score for sr in reward_result.step_rewards]
+
+        return Trajectory(
+            task_id=recorder_traj.task.task_id,
+            agent_framework=recorder_traj.agent,
+            agent_model=recorder_traj.model,
+            steps=steps_dicts,
+            total_steps=len(steps_dicts),
+            success=recorder_traj.outcome.success,
+            reward=total_reward,
+            step_rewards=step_rewards,
+            duration_seconds=duration,
+            metadata={
+                "task_description": recorder_traj.task.description,
+                "outcome_tests_passed": recorder_traj.outcome.tests_passed,
+                "outcome_tests_failed": recorder_traj.outcome.tests_failed,
+                "outcome_total_tokens": recorder_traj.outcome.total_tokens,
+                **recorder_traj.metadata,
+            },
         )
 
     # ------------------------------------------------------------------
