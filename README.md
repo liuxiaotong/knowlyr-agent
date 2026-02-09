@@ -7,7 +7,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-244_passed-brightgreen.svg)](#开发)
+[![Tests](https://img.shields.io/badge/tests-310_passed-brightgreen.svg)](#开发)
 [![MCP](https://img.shields.io/badge/MCP-16_Tools-purple.svg)](#mcp-server)
 [![Packages](https://img.shields.io/badge/packages-5-orange.svg)](#子包一览)
 
@@ -134,7 +134,7 @@ git clone https://github.com/liuxiaotong/knowlyr-agent.git
 cd knowlyr-agent
 
 make install-dev        # 开发模式安装全部包
-make test               # 运行全部测试 (244 passed)
+make test               # 运行全部测试 (310 passed)
 make test-sandbox       # 单独测试某个包
 make test-integration   # 跨包集成测试 (17 tests)
 make lint               # ruff 检查
