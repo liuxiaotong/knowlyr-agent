@@ -36,14 +36,14 @@ graph TD
 
 ## 子包一览 / Packages
 
-| 包名 | 功能 | CLI | MCP | 安装 |
-|------|------|-----|-----|------|
-| [**knowlyr-sandbox**](packages/sandbox/) | Docker 沙箱执行环境 | `knowlyr-sandbox` | 4 Tools | `pip install knowlyr-sandbox` |
-| [**knowlyr-recorder**](packages/recorder/) | Agent 轨迹录制与格式转换 | `knowlyr-recorder` | 3 Tools | `pip install knowlyr-recorder` |
-| [**knowlyr-reward**](packages/reward/) | 过程级 Rubric Reward 计算 | `knowlyr-reward` | 4 Tools | `pip install knowlyr-reward` |
-| [**knowlyr-hub**](packages/hub/) | Pipeline 编排与数据集导出 | `knowlyr-hub` | 3 Tools | `pip install knowlyr-hub` |
+| 包名 | 功能 | CLI | MCP |
+|------|------|-----|-----|
+| [**knowlyr-sandbox**](packages/sandbox/) | Docker 沙箱执行环境 | `knowlyr-sandbox` | 4 Tools |
+| [**knowlyr-recorder**](packages/recorder/) | Agent 轨迹录制与格式转换 | `knowlyr-recorder` | 3 Tools |
+| [**knowlyr-reward**](packages/reward/) | 过程级 Rubric Reward 计算 | `knowlyr-reward` | 4 Tools |
+| [**knowlyr-hub**](packages/hub/) | Pipeline 编排与数据集导出 | `knowlyr-hub` | 3 Tools |
 
-每个包**独立安装、独立使用**，子包之间无交叉依赖。
+每个包**独立安装、独立使用**，子包之间无交叉依赖。安装：`pip install <包名>`
 
 ## 安装 / Installation
 
@@ -64,10 +64,10 @@ pip install knowlyr-hub[all]
 
 | Server | Tools | 启动方式 |
 |--------|-------|---------|
-| knowlyr-sandbox | `create_sandbox`, `execute_tool`, `reset_sandbox`, `replay_trajectory` | `python -m agentsandbox.mcp_server` |
-| knowlyr-recorder | `convert_log`, `validate_log`, `get_schema` | `python -m agentrecorder.mcp_server` |
-| knowlyr-reward | `score_trajectory`, `compare_trajectories`, `build_preferences`, `list_rubrics` | `python -m agentreward.mcp_server` |
-| knowlyr-hub | `run_pipeline`, `export_dataset`, `pipeline_status` | `python -m trajectoryhub.mcp_server` |
+| knowlyr-sandbox | `create_sandbox`, `execute_tool`, `reset_sandbox`, `replay_trajectory` | <nobr><code>python -m agentsandbox.mcp_server</code></nobr> |
+| knowlyr-recorder | `convert_log`, `validate_log`, `get_schema` | <nobr><code>python -m agentrecorder.mcp_server</code></nobr> |
+| knowlyr-reward | `score_trajectory`, `compare_trajectories`, `build_preferences`, `list_rubrics` | <nobr><code>python -m agentreward.mcp_server</code></nobr> |
+| knowlyr-hub | `run_pipeline`, `export_dataset`, `pipeline_status` | <nobr><code>python -m trajectoryhub.mcp_server</code></nobr> |
 
 ## 开发 / Development
 
@@ -106,15 +106,15 @@ graph LR
 
 ### 生态项目
 
-| 层 | 项目 | PyPI 包 | 说明 | 仓库 |
-|---|---|---|---|---|
-| 情报 | **AI Dataset Radar** | knowlyr-radar | 数据集竞争情报、趋势分析 | [GitHub](https://github.com/liuxiaotong/ai-dataset-radar) |
-| 分析 | **DataRecipe** | knowlyr-datarecipe | 逆向分析、Schema 提取、成本估算 | [GitHub](https://github.com/liuxiaotong/data-recipe) |
-| 生产 | **DataSynth** | knowlyr-datasynth | LLM 批量合成、种子数据扩充 | [GitHub](https://github.com/liuxiaotong/data-synth) |
-| 生产 | **DataLabel** | knowlyr-datalabel | 轻量标注工具、多标注员合并 | [GitHub](https://github.com/liuxiaotong/data-label) |
-| 质检 | **DataCheck** | knowlyr-datacheck | 规则验证、重复检测、分布分析 | [GitHub](https://github.com/liuxiaotong/data-check) |
-| 质检 | **ModelAudit** | knowlyr-modelaudit | 蒸馏检测、模型指纹、身份验证 | [GitHub](https://github.com/liuxiaotong/model-audit) |
-| Agent | **knowlyr-agent** | knowlyr-sandbox / recorder / reward / hub | 沙箱 + 轨迹录制 + Reward + 编排 | You are here |
+| 层 | 项目 | PyPI 包 | 说明 |
+|---|---|---|---|
+| 情报 | [**AI Dataset Radar**](https://github.com/liuxiaotong/ai-dataset-radar) | `knowlyr-radar` | 数据集竞争情报、趋势分析 |
+| 分析 | [**DataRecipe**](https://github.com/liuxiaotong/data-recipe) | `knowlyr-datarecipe` | 逆向分析、Schema 提取、成本估算 |
+| 生产 | [**DataSynth**](https://github.com/liuxiaotong/data-synth) | `knowlyr-datasynth` | LLM 批量合成、种子数据扩充 |
+| 生产 | [**DataLabel**](https://github.com/liuxiaotong/data-label) | `knowlyr-datalabel` | 轻量标注工具、多标注员合并 |
+| 质检 | [**DataCheck**](https://github.com/liuxiaotong/data-check) | `knowlyr-datacheck` | 规则验证、重复检测、分布分析 |
+| 质检 | [**ModelAudit**](https://github.com/liuxiaotong/model-audit) | `knowlyr-modelaudit` | 蒸馏检测、模型指纹、身份验证 |
+| Agent | **knowlyr-agent** | `knowlyr-*` | 沙箱 + 轨迹录制 + Reward + 编排 `You are here` |
 
 ## License
 
