@@ -3,30 +3,11 @@
 import io
 import logging
 import tarfile
-from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict
+
+from knowlyrcore import ToolResult
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ToolResult:
-    """工具执行结果.
-
-    Attributes:
-        output: 标准输出内容
-        exit_code: 退出码 (0 表示成功)
-        error: 错误信息 (如果有)
-    """
-
-    output: str = ""
-    exit_code: int = 0
-    error: Optional[str] = None
-
-    @property
-    def success(self) -> bool:
-        """执行是否成功."""
-        return self.exit_code == 0 and self.error is None
 
 
 # ---------------------------------------------------------------------------

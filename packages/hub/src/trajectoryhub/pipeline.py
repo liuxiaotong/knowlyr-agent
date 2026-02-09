@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from trajectoryhub.config import AgentConfig, PipelineConfig
-from trajectoryhub.tasks import Task, TaskLoader
+from trajectoryhub.tasks import TaskInfo, TaskLoader
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +172,7 @@ class Pipeline:
             duration_seconds=duration,
         )
 
-    def run_single(self, task: Task, agent_config: AgentConfig) -> Trajectory:
+    def run_single(self, task: TaskInfo, agent_config: AgentConfig) -> Trajectory:
         """运行单个任务.
 
         流程：
@@ -303,7 +303,7 @@ class Pipeline:
     # 内部方法
     # ------------------------------------------------------------------
 
-    def _load_tasks(self) -> List[Task]:
+    def _load_tasks(self) -> List[TaskInfo]:
         """根据配置加载任务列表."""
         source = self.config.task_source
         loader = TaskLoader()

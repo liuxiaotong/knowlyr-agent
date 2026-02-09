@@ -40,9 +40,13 @@ jobs:
 
       - name: Install all packages in dev mode
         run: |
+          pip install -e "packages/core[dev]"
           for pkg in sandbox recorder reward hub; do
             pip install -e "packages/$pkg[dev]"
           done
+
+      - name: Test core
+        run: python -m pytest packages/core/tests/ -v
 
       - name: Test sandbox
         run: python -m pytest packages/sandbox/tests/ -v

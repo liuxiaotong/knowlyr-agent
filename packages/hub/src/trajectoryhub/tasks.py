@@ -1,36 +1,10 @@
 """Task loading and management - 任务加载与管理."""
 
 import json
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-
-@dataclass
-class Task:
-    """单个任务定义.
-
-    Attributes:
-        task_id: 唯一任务标识
-        description: 任务描述
-        type: 任务类型 (bug_fix / feature / refactor / test)
-        language: 编程语言 (python / javascript / go / etc.)
-        difficulty: 难度等级 (easy / medium / hard)
-        repo: GitHub 仓库地址 (e.g. "owner/repo")
-        base_commit: 基准 commit SHA
-        test_command: 验证命令 (e.g. "pytest tests/test_xxx.py")
-        metadata: 额外元数据
-    """
-
-    task_id: str = ""
-    description: str = ""
-    type: str = "bug_fix"
-    language: str = "python"
-    difficulty: str = "medium"
-    repo: str = ""
-    base_commit: str = ""
-    test_command: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
+from knowlyrcore import TaskInfo
 
 
 class TaskLoader:
@@ -53,7 +27,7 @@ class TaskLoader:
         python_tasks = loader.filter_tasks(tasks, language="python", difficulty="medium")
     """
 
-    def load_from_jsonl(self, path: str) -> List[Task]:
+    def load_from_jsonl(self, path: str) -> List[TaskInfo]:
         """从 JSONL 文件加载任务.
 
         JSONL 格式 (每行一个 JSON):
@@ -74,7 +48,7 @@ class TaskLoader:
             path: JSONL 文件路径
 
         Returns:
-            List[Task]: 加载的任务列表
+            List[TaskInfo]: 加载的任务列表
         """
         tasks = []
         file_path = Path(path)
@@ -89,7 +63,7 @@ class TaskLoader:
                     continue
                 try:
                     data = json.loads(line)
-                    task = Task(
+                    task = TaskInfo(
                         task_id=data.get("task_id", f"task_{line_num}"),
                         description=data.get("description", ""),
                         type=data.get("type", "bug_fix"),
@@ -111,7 +85,7 @@ class TaskLoader:
         dataset_name: str = "princeton-nlp/SWE-bench_Verified",
         split: str = "test",
         limit: Optional[int] = None,
-    ) -> List[Task]:
+    ) -> List[TaskInfo]:
         """从 SWE-bench 数据集加载任务.
 
         需要安装 datasets 库: pip install datasets
@@ -122,7 +96,7 @@ class TaskLoader:
             limit: 限制加载数量
 
         Returns:
-            List[Task]: 加载的任务列表
+            List[TaskInfo]: 加载的任务列表
         """
         try:
             from datasets import load_dataset
@@ -138,7 +112,7 @@ class TaskLoader:
             if limit and i >= limit:
                 break
 
-            task = Task(
+            task = TaskInfo(
                 task_id=item.get("instance_id", f"swebench_{i}"),
                 description=item.get("problem_statement", ""),
                 type="bug_fix",
@@ -161,11 +135,11 @@ class TaskLoader:
 
     def filter_tasks(
         self,
-        tasks: List[Task],
+        tasks: List[TaskInfo],
         language: Optional[str] = None,
         difficulty: Optional[str] = None,
         task_type: Optional[str] = None,
-    ) -> List[Task]:
+    ) -> List[TaskInfo]:
         """按条件过滤任务.
 
         Args:
@@ -175,7 +149,7 @@ class TaskLoader:
             task_type: 按任务类型过滤
 
         Returns:
-            List[Task]: 过滤后的任务列表
+            List[TaskInfo]: 过滤后的任务列表
         """
         filtered = tasks
 

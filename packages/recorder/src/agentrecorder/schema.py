@@ -11,20 +11,14 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from knowlyrcore import TaskInfo, ToolResult
+
 
 class ToolCall(BaseModel):
     """工具调用记录."""
 
     name: str = Field(description="工具名称")
     parameters: dict[str, Any] = Field(default_factory=dict, description="工具调用参数")
-
-
-class ToolResult(BaseModel):
-    """工具执行结果."""
-
-    output: str = Field(description="工具输出内容")
-    exit_code: int = Field(default=0, description="退出码，0 表示成功")
-    error: str | None = Field(default=None, description="错误信息")
 
 
 class Step(BaseModel):
@@ -36,19 +30,6 @@ class Step(BaseModel):
     tool_result: ToolResult = Field(description="工具执行结果")
     timestamp: str = Field(description="时间戳 (ISO 8601)")
     token_count: int | None = Field(default=None, description="该步骤消耗的 Token 数")
-
-
-class TaskInfo(BaseModel):
-    """任务信息."""
-
-    task_id: str = Field(description="任务唯一标识")
-    description: str = Field(default="", description="任务描述")
-    type: str = Field(default="", description="任务类型 (如 code_edit, bug_fix)")
-    language: str = Field(default="", description="编程语言")
-    difficulty: str = Field(default="", description="难度等级")
-    repo: str = Field(default="", description="目标仓库")
-    base_commit: str = Field(default="", description="基础 commit hash")
-    test_command: str = Field(default="", description="测试命令")
 
 
 class Outcome(BaseModel):

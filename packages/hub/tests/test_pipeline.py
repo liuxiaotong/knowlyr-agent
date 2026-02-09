@@ -8,7 +8,7 @@ from trajectoryhub.config import (
     TaskSource,
 )
 from trajectoryhub.pipeline import Pipeline, PipelineResult, Trajectory
-from trajectoryhub.tasks import Task
+from trajectoryhub.tasks import TaskInfo
 
 
 class TestPipelineConfig:
@@ -76,7 +76,7 @@ class TestPipeline:
         """Test run_single returns a Trajectory."""
         config = PipelineConfig()
         pipeline = Pipeline(config)
-        task = Task(task_id="test-001", description="Test task")
+        task = TaskInfo(task_id="test-001", description="Test task")
         agent_config = AgentConfig()
 
         trajectory = pipeline.run_single(task, agent_config)

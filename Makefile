@@ -1,6 +1,6 @@
-.PHONY: test test-sandbox test-recorder test-reward test-hub lint build clean
+.PHONY: test test-core test-sandbox test-recorder test-reward test-hub lint build clean
 
-PACKAGES = sandbox recorder reward hub
+PACKAGES = core sandbox recorder reward hub
 
 # 测试全部包
 test:
@@ -10,6 +10,9 @@ test:
 	done
 
 # 单独测试
+test-core:
+	cd packages/core && python -m pytest tests/ -v
+
 test-sandbox:
 	cd packages/sandbox && python -m pytest tests/ -v
 
