@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "knowlyr-hub"
+version = "0.1.0"
+description = "Agent trajectory pipeline orchestrator - Task -> Sandbox -> Recorder -> Reward -> Export"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Liu Kai", email = "mrliukai@gmail.com" }
+]
+keywords = ["agent-trajectory", "pipeline", "orchestrator", "rl-data", "sft", "dpo", "code-agent"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "click>=8.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+sandbox = ["knowlyr-sandbox>=0.1.0"]
+recorder = ["knowlyr-recorder>=0.1.0"]
+reward = ["knowlyr-reward>=0.1.0"]
+check = ["knowlyr-datacheck>=0.1.0"]
+mcp = ["mcp>=1.0"]
+dev = ["pytest", "ruff"]
+all = ["knowlyr-hub[sandbox,recorder,reward,check,mcp,dev]"]
+
+[project.scripts]
+knowlyr-hub = "trajectoryhub.cli:main"
+
+[project.entry-points."mcp.servers"]
+knowlyr-hub = "trajectoryhub.mcp_server:serve"
+
+[project.urls]
+Homepage = "https://github.com/liuxiaotong/knowlyr-agent"
+Documentation = "https://github.com/liuxiaotong/knowlyr-agent/tree/main/packages/hub"
+Repository = "https://github.com/liuxiaotong/knowlyr-agent"
+Issues = "https://github.com/liuxiaotong/knowlyr-agent/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/trajectoryhub"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

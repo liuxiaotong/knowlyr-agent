@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "knowlyr-sandbox"
+version = "0.1.0"
+description = "Code Agent execution sandbox - reproducible Docker environments for isolated code task execution and trajectory replay"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Liu Kai", email = "mrliukai@gmail.com" }
+]
+keywords = ["sandbox", "code-agent", "docker", "execution-environment", "trajectory-replay", "ai"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "click>=8.0",
+    "pydantic>=2.0",
+    "docker>=7.0",
+]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0"]
+dev = ["pytest", "ruff"]
+all = ["knowlyr-sandbox[mcp,dev]"]
+
+[project.scripts]
+knowlyr-sandbox = "agentsandbox.cli:main"
+
+[project.entry-points."mcp.servers"]
+knowlyr-sandbox = "agentsandbox.mcp_server:serve"
+
+[project.urls]
+Homepage = "https://github.com/liuxiaotong/knowlyr-agent"
+Documentation = "https://github.com/liuxiaotong/knowlyr-agent/tree/main/packages/sandbox"
+Repository = "https://github.com/liuxiaotong/knowlyr-agent"
+Issues = "https://github.com/liuxiaotong/knowlyr-agent/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentsandbox"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
