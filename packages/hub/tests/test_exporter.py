@@ -198,14 +198,50 @@ class TestDatasetExporter:
             assert "Total trajectories" in card
             assert "license: mit" in card
 
-    def test_export_huggingface_not_implemented(self):
-        """Test HuggingFace export returns not-implemented error."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            traj_path = self._create_test_trajectories(tmp_path)
+    def test_export_huggingface_without_lib(self):
+        """无 huggingface_hub 时应返回安装提示."""
+        import trajectoryhub.exporter as exp_mod
+        original = exp_mod._HAS_HF
+        try:
+            exp_mod._HAS_HF = False
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_path = Path(tmp_dir)
+                traj_path = self._create_test_trajectories(tmp_path)
 
-            exporter = DatasetExporter(trajectories_dir=str(traj_path))
-            result = exporter.export_huggingface("test/repo")
+                exporter = DatasetExporter(trajectories_dir=str(traj_path))
+                result = exporter.export_huggingface("test/repo")
 
-            assert result.success is False
-            assert "待实现" in result.error or "huggingface" in result.error.lower()
+                assert result.success is False
+                assert "huggingface" in result.error.lower()
+        finally:
+            exp_mod._HAS_HF = original
+
+    def test_export_huggingface_with_mock(self):
+        """有 huggingface_hub 时应调用 API 上传."""
+        from unittest.mock import MagicMock, patch
+        import trajectoryhub.exporter as exp_mod
+
+        original = exp_mod._HAS_HF
+        try:
+            exp_mod._HAS_HF = True
+            mock_api = MagicMock()
+
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_path = Path(tmp_dir)
+                traj_path = self._create_test_trajectories(tmp_path)
+
+                exporter = DatasetExporter(trajectories_dir=str(traj_path))
+
+                with patch.object(exp_mod, "HfApi", return_value=mock_api, create=True):
+                    result = exporter.export_huggingface("user/test-dataset")
+
+                assert result.success is True
+                assert result.format == "huggingface"
+                assert result.total_records > 0
+                assert "huggingface.co" in result.output_path
+                mock_api.create_repo.assert_called_once_with(
+                    "user/test-dataset", repo_type="dataset", exist_ok=True,
+                )
+                mock_api.upload_folder.assert_called_once()
+        finally:
+            exp_mod._HAS_HF = original

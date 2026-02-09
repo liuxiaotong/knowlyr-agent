@@ -9,11 +9,19 @@
 
 import json
 import logging
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+try:
+    from huggingface_hub import HfApi
+
+    _HAS_HF = True
+except ImportError:
+    _HAS_HF = False
 
 
 @dataclass
@@ -323,6 +331,13 @@ class DatasetExporter:
         """推送数据集到 HuggingFace Hub.
 
         将轨迹和偏好对打包上传到 HuggingFace，附带自动生成的 Dataset Card。
+        需要安装 huggingface-hub 并已通过 huggingface-cli login 认证。
+
+        上传文件:
+        - README.md (Dataset Card)
+        - sft_train.jsonl (SFT 格式)
+        - dpo_train.jsonl (DPO 格式，如有偏好对)
+        - benchmark.jsonl (评测基准格式)
 
         Args:
             repo_id: HuggingFace 仓库 ID (e.g. "username/dataset-name")
@@ -330,17 +345,73 @@ class DatasetExporter:
         Returns:
             ExportResult: 导出结果
         """
-        # TODO: 接入 huggingface_hub 库上传
-        # from huggingface_hub import HfApi
-        # api = HfApi()
-        # api.create_repo(repo_id, repo_type="dataset", exist_ok=True)
-        # api.upload_file(...)
+        if not _HAS_HF:
+            return ExportResult(
+                success=False,
+                format="huggingface",
+                error="需要安装 huggingface-hub: pip install knowlyr-hub[hf]",
+            )
 
-        return ExportResult(
-            success=False,
-            format="huggingface",
-            error="HuggingFace 导出功能待实现。请先安装: pip install huggingface_hub",
-        )
+        try:
+            api = HfApi()
+
+            # 创建 dataset repo（已存在则跳过）
+            api.create_repo(repo_id, repo_type="dataset", exist_ok=True)
+            logger.info("HuggingFace repo 已就绪: %s", repo_id)
+
+            uploaded_count = 0
+
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_path = Path(tmp_dir)
+
+                # 生成 Dataset Card
+                card = self.generate_datacard()
+                readme_path = tmp_path / "README.md"
+                readme_path.write_text(card, encoding="utf-8")
+
+                # 导出 SFT
+                sft_path = tmp_path / "sft_train.jsonl"
+                sft_result = self.export_sft(str(sft_path))
+                if sft_result.success:
+                    uploaded_count += sft_result.total_records
+
+                # 导出 DPO（如有偏好对）
+                if self.preferences_dir and self.preferences_dir.exists():
+                    dpo_path = tmp_path / "dpo_train.jsonl"
+                    dpo_result = self.export_dpo(str(dpo_path))
+                    if dpo_result.success:
+                        uploaded_count += dpo_result.total_records
+
+                # 导出 Benchmark
+                bench_path = tmp_path / "benchmark.jsonl"
+                bench_result = self.export_benchmark(str(bench_path))
+                if bench_result.success:
+                    uploaded_count += bench_result.total_records
+
+                # 上传整个目录
+                api.upload_folder(
+                    repo_id=repo_id,
+                    folder_path=str(tmp_path),
+                    repo_type="dataset",
+                )
+
+            logger.info(
+                "HuggingFace 上传完成: %s (%d 条记录)", repo_id, uploaded_count,
+            )
+            return ExportResult(
+                success=True,
+                output_path=f"https://huggingface.co/datasets/{repo_id}",
+                total_records=uploaded_count,
+                format="huggingface",
+            )
+
+        except Exception as e:
+            logger.exception("HuggingFace 导出失败")
+            return ExportResult(
+                success=False,
+                format="huggingface",
+                error=str(e),
+            )
 
     def generate_datacard(self) -> str:
         """生成数据集卡片 (Dataset Card).

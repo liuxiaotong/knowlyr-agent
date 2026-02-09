@@ -37,9 +37,10 @@ sandbox = ["knowlyr-sandbox>=0.1.0"]
 recorder = ["knowlyr-recorder>=0.1.0"]
 reward = ["knowlyr-reward>=0.1.0"]
 check = ["knowlyr-datacheck>=0.1.0"]
+hf = ["huggingface-hub>=0.20"]
 mcp = ["mcp>=1.0"]
 dev = ["pytest", "ruff"]
-all = ["knowlyr-hub[sandbox,recorder,reward,check,mcp,dev]"]
+all = ["knowlyr-hub[sandbox,recorder,reward,check,hf,mcp,dev]"]
 
 [project.scripts]
 knowlyr-hub = "trajectoryhub.cli:main"
