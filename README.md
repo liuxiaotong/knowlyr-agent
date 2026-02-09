@@ -3,7 +3,7 @@
 # knowlyr-agent
 
 **Agent 轨迹数据工程 Monorepo — 执行、录制、评分、编排一站式 Pipeline**
-**Agent trajectory data engineering — sandbox, record, reward & orchestrate in one repo**
+**Agent trajectory data engineering monorepo — sandbox execution, trajectory recording, process reward scoring & pipeline orchestration**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
