@@ -1,0 +1,16 @@
+name: Notify Website
+
+on:
+  push:
+    branches: [main]
+    paths: [README.md]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}
+          repository: liuxiaotong/knowlyr-website
+          event-type: rebuild-projects
