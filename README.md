@@ -10,7 +10,7 @@
 <br/>
 [![CI](https://github.com/liuxiaotong/knowlyr-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/liuxiaotong/knowlyr-agent/actions/workflows/ci.yml)
 [![Tests](https://img.shields.io/badge/tests-444_passed-brightgreen.svg)](#开发)
-[![MCP](https://img.shields.io/badge/MCP-16_Tools-purple.svg)](#mcp-server)
+[![MCP](https://img.shields.io/badge/MCP-19_Tools-purple.svg)](#mcp-server)
 [![Packages](https://img.shields.io/badge/packages-5-orange.svg)](#子包一览)
 
 [子包一览](#子包一览) · [架构](#架构) · [安装](#安装) · [快速开始](#快速开始) · [Gym-Style API](#gym-style-api) · [多领域支持](#多领域支持) · [MCP Server](#mcp-server) · [开发](#开发) · [生态](#data-pipeline-生态)
@@ -29,9 +29,9 @@
 | 包名 | 功能 | CLI | MCP | 测试 |
 |------|------|-----|-----|------|
 | [**knowlyr-core**](packages/core/) | 共享模型 + Gym 协议 (AgentEnv, TimeStep, Wrapper, Registry) | — | — | 96 |
-| [**knowlyr-sandbox**](packages/sandbox/) | Docker 沙箱执行环境 + SandboxEnv 适配器 | `knowlyr-sandbox` | 4 Tools | 65 |
-| [**knowlyr-recorder**](packages/recorder/) | Agent 轨迹录制、格式转换、适配器注册表 | `knowlyr-recorder` | 3 Tools | 62 |
-| [**knowlyr-reward**](packages/reward/) | 过程级 Rubric Reward (规则层 + LLM-as-Judge)，多领域 ToolClassifier | `knowlyr-reward` | 4 Tools | 131 |
+| [**knowlyr-sandbox**](packages/sandbox/) | Docker 沙箱执行环境 + SandboxEnv 适配器 | `knowlyr-sandbox` | 5 Tools | 65 |
+| [**knowlyr-recorder**](packages/recorder/) | Agent 轨迹录制、格式转换、适配器注册表 | `knowlyr-recorder` | 4 Tools | 62 |
+| [**knowlyr-reward**](packages/reward/) | 过程级 Rubric Reward (规则层 + LLM-as-Judge)，多领域 ToolClassifier | `knowlyr-reward` | 5 Tools | 131 |
 | [**knowlyr-hub**](packages/hub/) | Pipeline 编排、轨迹收集 (collect)、数据集导出 (SFT/DPO/HuggingFace) | `knowlyr-hub` | 5 Tools | 73 |
 
 每个包**独立安装、独立使用**，sandbox / recorder / reward 三者无交叉依赖。Hub 通过可选依赖串联全部包。
@@ -285,7 +285,7 @@ register_adapter("my-agent", MyAgentAdapter)
 
 ## MCP Server
 
-每个子包提供独立的 MCP Server，共 16 个 Tools：
+每个子包提供独立的 MCP Server，共 19 个 Tools：
 
 | Server | 启动方式 |
 |--------|---------|
@@ -295,11 +295,11 @@ register_adapter("my-agent", MyAgentAdapter)
 | knowlyr-hub | `python -m trajectoryhub.mcp_server` |
 
 <details>
-<summary>16 Tools 详情</summary>
+<summary>19 Tools 详情</summary>
 
-- **sandbox**: `create_sandbox`, `execute_tool`, `reset_sandbox`, `replay_trajectory`
-- **recorder**: `convert_log`, `validate_log`, `get_schema`
-- **reward**: `score_trajectory`, `compare_trajectories`, `build_preferences`, `list_rubrics`
+- **sandbox**: `create_sandbox`, `execute_tool`, `reset_sandbox`, `replay_trajectory`, `sandbox_snapshot`
+- **recorder**: `convert_log`, `validate_log`, `get_schema`, `recorder_diff`
+- **reward**: `score_trajectory`, `compare_trajectories`, `build_preferences`, `list_rubrics`, `reward_leaderboard`
 - **hub**: `run_pipeline`, `export_dataset`, `process_log`, `process_logs_batch`, `pipeline_status`
 
 </details>
