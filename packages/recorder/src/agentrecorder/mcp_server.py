@@ -76,6 +76,24 @@ def create_server() -> "Server":
                     "properties": {},
                 },
             ),
+            Tool(
+                name="recorder_diff",
+                description="对比两条轨迹的差异 — 步骤数、工具使用、成功率等维度对比",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "trajectory_a": {
+                            "type": "string",
+                            "description": "轨迹 A 的 JSON 文件路径",
+                        },
+                        "trajectory_b": {
+                            "type": "string",
+                            "description": "轨迹 B 的 JSON 文件路径",
+                        },
+                    },
+                    "required": ["trajectory_a", "trajectory_b"],
+                },
+            ),
         ]
 
     @server.call_tool()
@@ -186,6 +204,60 @@ def create_server() -> "Server":
                     text=f"## Trajectory JSON Schema\n\n```json\n{schema_json}\n```",
                 )
             ]
+
+        elif name == "recorder_diff":
+            import json as _json
+            path_a = Path(arguments["trajectory_a"])
+            path_b = Path(arguments["trajectory_b"])
+            if not path_a.exists():
+                return [TextContent(type="text", text=f"文件不存在: {path_a}")]
+            if not path_b.exists():
+                return [TextContent(type="text", text=f"文件不存在: {path_b}")]
+
+            with open(path_a, encoding="utf-8") as f:
+                traj_a = _json.load(f)
+            with open(path_b, encoding="utf-8") as f:
+                traj_b = _json.load(f)
+
+            def _extract_stats(traj: dict) -> dict:
+                steps = traj.get("steps", [])
+                tools_used = set()
+                for s in steps:
+                    tool = s.get("tool") or s.get("action", {}).get("tool", "")
+                    if tool:
+                        tools_used.add(tool)
+                return {
+                    "steps": len(steps),
+                    "tools": sorted(tools_used),
+                    "success": traj.get("success", traj.get("metadata", {}).get("success")),
+                    "model": traj.get("model", traj.get("metadata", {}).get("model", "-")),
+                    "task": traj.get("task_id", traj.get("metadata", {}).get("task_id", "-")),
+                }
+
+            sa = _extract_stats(traj_a)
+            sb = _extract_stats(traj_b)
+
+            lines = [
+                "## 轨迹对比", "",
+                "| 维度 | A | B |",
+                "|------|---|---|",
+                f"| 步骤数 | {sa['steps']} | {sb['steps']} |",
+                f"| 成功 | {sa['success']} | {sb['success']} |",
+                f"| 模型 | {sa['model']} | {sb['model']} |",
+                f"| 任务 | {sa['task']} | {sb['task']} |",
+                "",
+                "### 工具使用",
+                f"- A: {', '.join(sa['tools']) or '(无)'}",
+                f"- B: {', '.join(sb['tools']) or '(无)'}",
+            ]
+            only_a = set(sa['tools']) - set(sb['tools'])
+            only_b = set(sb['tools']) - set(sa['tools'])
+            if only_a:
+                lines.append(f"- 仅 A: {', '.join(sorted(only_a))}")
+            if only_b:
+                lines.append(f"- 仅 B: {', '.join(sorted(only_b))}")
+
+            return [TextContent(type="text", text="\n".join(lines))]
 
         else:
             return [TextContent(type="text", text=f"未知工具: {name}")]

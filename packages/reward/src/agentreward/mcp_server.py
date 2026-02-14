@@ -101,6 +101,27 @@ def create_server() -> "Server":
                     "properties": {},
                 },
             ),
+            Tool(
+                name="reward_leaderboard",
+                description="从多条轨迹生成奖励排行榜 — 按 Reward 分数排序，对比不同模型/策略的表现",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "trajectory_files": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "轨迹 JSON 文件路径列表",
+                        },
+                        "group_by": {
+                            "type": "string",
+                            "enum": ["model", "task", "none"],
+                            "description": "分组方式（默认 model）",
+                            "default": "model",
+                        },
+                    },
+                    "required": ["trajectory_files"],
+                },
+            ),
         ]
 
     @server.call_tool()
@@ -185,6 +206,65 @@ def create_server() -> "Server":
                     f"  - 权重: {r.weight}, 评估方式: {r.evaluator}"
                 )
             lines.append(f"\n总权重: {rubric_set.total_weight():.2f}")
+
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        elif name == "reward_leaderboard":
+            trajectory_files = arguments["trajectory_files"]
+            group_by = arguments.get("group_by", "model")
+
+            entries = []
+            for fp in trajectory_files:
+                path = Path(fp)
+                if not path.exists():
+                    continue
+                with open(path, encoding="utf-8") as f:
+                    traj = json.load(f)
+
+                # Score trajectory
+                try:
+                    score_result = score(traj)
+                    total = score_result.total_score
+                except Exception:
+                    total = 0.0
+
+                meta = traj.get("metadata", {})
+                entries.append({
+                    "file": path.name,
+                    "model": meta.get("model", traj.get("model", "-")),
+                    "task": meta.get("task_id", traj.get("task_id", "-")),
+                    "score": round(total, 4),
+                    "success": traj.get("success", meta.get("success")),
+                    "steps": len(traj.get("steps", [])),
+                })
+
+            if not entries:
+                return [TextContent(type="text", text="错误: 没有有效的轨迹文件")]
+
+            entries.sort(key=lambda e: e["score"], reverse=True)
+
+            lines = [f"## Reward 排行榜 ({len(entries)} 条轨迹)", ""]
+
+            if group_by == "model":
+                from collections import defaultdict
+                groups: dict = defaultdict(list)
+                for e in entries:
+                    groups[e["model"]].append(e)
+                lines.append("| 排名 | 模型 | 平均分 | 轨迹数 | 成功率 |")
+                lines.append("|------|------|--------|--------|--------|")
+                model_stats = []
+                for model, es in groups.items():
+                    avg = sum(e["score"] for e in es) / len(es)
+                    success = sum(1 for e in es if e["success"]) / len(es)
+                    model_stats.append((model, avg, len(es), success))
+                model_stats.sort(key=lambda x: x[1], reverse=True)
+                for i, (model, avg, cnt, suc) in enumerate(model_stats, 1):
+                    lines.append(f"| {i} | {model} | {avg:.4f} | {cnt} | {suc:.0%} |")
+            else:
+                lines.append("| 排名 | 文件 | 模型 | 分数 | 步骤 | 成功 |")
+                lines.append("|------|------|------|------|------|------|")
+                for i, e in enumerate(entries, 1):
+                    lines.append(f"| {i} | {e['file']} | {e['model']} | {e['score']:.4f} | {e['steps']} | {e['success']} |")
 
             return [TextContent(type="text", text="\n".join(lines))]
 
