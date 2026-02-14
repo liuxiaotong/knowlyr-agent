@@ -121,6 +121,24 @@ def create_server() -> "Server":
                     "required": ["sandbox_id", "trajectory"],
                 },
             ),
+            Tool(
+                name="sandbox_snapshot",
+                description="保存沙箱当前状态快照（文件系统 diff + 环境信息）",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "sandbox_id": {
+                            "type": "string",
+                            "description": "沙箱 ID",
+                        },
+                        "label": {
+                            "type": "string",
+                            "description": "快照标签（可选）",
+                        },
+                    },
+                    "required": ["sandbox_id"],
+                },
+            ),
         ]
 
     @server.call_tool()
@@ -220,6 +238,38 @@ def create_server() -> "Server":
                     }, ensure_ascii=False),
                 )
             ]
+
+        elif name == "sandbox_snapshot":
+            sandbox_id = arguments["sandbox_id"]
+            label = arguments.get("label", "")
+
+            sandbox = _sandboxes.get(sandbox_id)
+            if not sandbox:
+                return [TextContent(type="text", text=f"沙箱不存在: {sandbox_id}")]
+
+            try:
+                # Get diff from base commit
+                diff_result = sandbox.exec("git diff --stat HEAD 2>/dev/null || echo 'no git'")
+                env_result = sandbox.exec("python3 --version 2>/dev/null && pip list --format=columns 2>/dev/null | head -20 || echo 'no python'")
+
+                snapshot = {
+                    "sandbox_id": sandbox_id,
+                    "label": label,
+                    "file_diff": diff_result.output if diff_result.success else "(无法获取)",
+                    "environment": env_result.output if env_result.success else "(无法获取)",
+                }
+
+                lines = [
+                    f"## 沙箱快照: {sandbox_id}",
+                    f"**标签**: {label or '(无)'}", "",
+                    "### 文件变更",
+                    f"```\n{snapshot['file_diff']}\n```", "",
+                    "### 环境信息",
+                    f"```\n{snapshot['environment']}\n```",
+                ]
+                return [TextContent(type="text", text="\n".join(lines))]
+            except Exception as e:
+                return [TextContent(type="text", text=f"快照失败: {e}")]
 
         else:
             return [TextContent(type="text", text=f"未知工具: {name}")]
