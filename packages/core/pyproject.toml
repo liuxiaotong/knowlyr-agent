@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "knowlyr-core"
-version = "0.1.0"
+version = "0.1.1"
 description = "Shared data models for knowlyr agent toolchain"
 readme = {text = "Shared data models for knowlyr agent toolchain.", content-type = "text/plain"}
 license = "MIT"
