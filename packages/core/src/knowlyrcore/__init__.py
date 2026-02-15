@@ -9,6 +9,7 @@ __version__ = "0.1.0"
 from knowlyrcore.domain import (
     BROWSER_PROFILE,
     CODING_PROFILE,
+    CONVERSATION_PROFILE,
     GENERIC_PROFILE,
     DomainProfile,
     OutcomeSpec,
@@ -40,6 +41,7 @@ __all__ = [
     "OutcomeSpec",
     "CODING_PROFILE",
     "BROWSER_PROFILE",
+    "CONVERSATION_PROFILE",
     "GENERIC_PROFILE",
     "get_domain_profile",
     "load_domain_profile",

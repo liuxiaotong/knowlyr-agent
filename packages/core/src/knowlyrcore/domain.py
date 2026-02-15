@@ -160,6 +160,44 @@ BROWSER_PROFILE = DomainProfile(
     },
 )
 
+CONVERSATION_PROFILE = DomainProfile(
+    domain="conversation",
+    display_name="Conversation Agent",
+    tools=[
+        ToolSpec(
+            name="respond", category=ToolCategory.WRITE,
+            aliases=["reply", "answer"],
+        ),
+        ToolSpec(
+            name="query_stats", category=ToolCategory.READ,
+            aliases=["query", "lookup", "get_stats"],
+        ),
+        ToolSpec(
+            name="send_message", category=ToolCategory.WRITE,
+            aliases=["message", "notify"],
+        ),
+        ToolSpec(
+            name="delegate", category=ToolCategory.EXECUTE,
+            aliases=["assign", "dispatch"],
+        ),
+        ToolSpec(
+            name="web_search", category=ToolCategory.SEARCH,
+            aliases=["search", "browse"],
+        ),
+        ToolSpec(
+            name="create_note", category=ToolCategory.WRITE,
+            aliases=["note", "memo"],
+        ),
+        ToolSpec(name="think", category=ToolCategory.THINK),
+    ],
+    outcome_spec=OutcomeSpec(success_field="success"),
+    task_fields={
+        "context": "对话上下文",
+        "role": "AI 员工角色",
+        "style": "期望的沟通风格",
+    },
+)
+
 GENERIC_PROFILE = DomainProfile(
     domain="generic",
     display_name="Generic Tool-Use Agent",
@@ -170,6 +208,7 @@ GENERIC_PROFILE = DomainProfile(
 _BUILTIN_PROFILES: dict[str, DomainProfile] = {
     "coding": CODING_PROFILE,
     "browser": BROWSER_PROFILE,
+    "conversation": CONVERSATION_PROFILE,
     "generic": GENERIC_PROFILE,
 }
 

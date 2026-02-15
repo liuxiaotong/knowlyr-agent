@@ -11,7 +11,7 @@ from knowlyrcore.domain import get_domain_profile, load_domain_profile
 from agentreward import __version__
 from agentreward.config import RewardConfig
 from agentreward.reward import RewardEngine
-from agentreward.rubrics import get_default_rubric_set
+from agentreward.rubrics import get_rubric_set_for_domain
 from agentreward.preferences import build_preferences, preferences_summary, preferences_to_dicts
 from agentreward.calibration import calibrate
 
@@ -63,7 +63,7 @@ def main():
 )
 @click.option(
     "-d", "--domain", type=str, default="coding",
-    help="Agent 领域 (coding / browser / generic / 自定义 profile 路径)",
+    help="Agent 领域 (coding / conversation / browser / generic / 自定义 profile 路径)",
 )
 def score(
     trajectory_file: str,
@@ -279,11 +279,12 @@ def calibrate_cmd(
 
 
 @main.command()
-def rubrics():
+@click.option("--domain", default="coding", help="领域 (coding/conversation)")
+def rubrics(domain: str):
     """列出可用的评估 Rubric"""
-    rubric_set = get_default_rubric_set()
+    rubric_set = get_rubric_set_for_domain(domain)
 
-    click.echo("评估 Rubric 维度:\n")
+    click.echo(f"评估 Rubric 维度 (domain={domain}):\n")
     for r in rubric_set.rubrics:
         click.echo(f"  {r.id} ({r.name})")
         click.echo(f"    {r.description}")

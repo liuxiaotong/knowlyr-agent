@@ -9,7 +9,7 @@ from typing import Any
 from knowlyrcore.domain import DomainProfile, get_domain_profile
 
 from agentreward.config import RewardConfig
-from agentreward.rubrics import RubricSet, get_default_rubric_set
+from agentreward.rubrics import RubricSet, get_rubric_set_for_domain
 from agentreward.rules import (
     check_redundancy,
     check_regression,
@@ -95,8 +95,8 @@ class RewardEngine:
         profile: DomainProfile | None = None,
     ):
         self.config = config or RewardConfig()
-        self.rubric_set = rubric_set or get_default_rubric_set()
         self.profile = profile or get_domain_profile(self.config.domain)
+        self.rubric_set = rubric_set or get_rubric_set_for_domain(self.config.domain)
 
     def score(self, trajectory: dict[str, Any]) -> TrajectoryReward:
         """Score a single trajectory.
@@ -161,6 +161,7 @@ class RewardEngine:
                 temperature=self.config.temperature,
                 base_url=self.config.base_url,
                 api_key=self.config.api_key,
+                domain=self.config.domain,
             )
             judgments = judge_trajectory(
                 trajectory=trajectory,

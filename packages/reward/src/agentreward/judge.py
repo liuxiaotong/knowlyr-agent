@@ -71,6 +71,45 @@ STEP_JUDGE_PROMPT = """你是一个 Agent 轨迹评估专家。请根据以下�
 - overall_score 应该是各维度分数的加权平均
 """
 
+CONVERSATION_JUDGE_PROMPT = """你是一个 AI 对话质量评估专家。请根据以下评估维度，对 AI 助手的这一步操作进行打分。
+
+## 用户请求
+{task_description}
+
+## 当前步骤 (Step {step_index}/{total_steps})
+- 操作类型: {tool_name}
+- 参数: {tool_params}
+- 回复/输出:
+{tool_output}
+
+## 对话上下文
+{context_summary}
+
+## 评估维度
+{rubric_descriptions}
+
+## 评分要求
+请对每个评估维度给出 0.0-1.0 的分数，并给出简短理由。
+
+输出格式 (JSON):
+{{
+  "scores": {{
+    "<rubric_id>": <score>,
+    ...
+  }},
+  "rationale": "简要说明这一步的整体评价",
+  "overall_score": <加权总分>
+}}
+
+评分标准:
+- 0.0 = 完全不满足，回复无用或有害
+- 0.3 = 基本没满足，回复方向错误或严重缺失
+- 0.5 = 部分满足，但有明显不足
+- 0.7 = 基本满足，小有瑕疵
+- 1.0 = 完全满足，回复优秀
+- 重点关注: 回复对用户的实际帮助程度，而非工具调用的技术细节
+"""
+
 
 @dataclass
 class JudgeConfig:
@@ -82,6 +121,7 @@ class JudgeConfig:
     max_retries: int = 3
     base_url: str | None = None
     api_key: str | None = None
+    domain: str = "coding"
 
 
 @dataclass
@@ -253,6 +293,7 @@ def build_judge_prompt(
     context_summary: str,
     rubrics: list[Rubric],
     task_description: str = "",
+    domain: str = "coding",
 ) -> str:
     """Build the prompt for judging a single step.
 
@@ -263,6 +304,7 @@ def build_judge_prompt(
         context_summary: Summary of previous steps
         rubrics: List of rubrics to evaluate against
         task_description: Description of the overall task
+        domain: 领域标识，conversation 使用对话专用 prompt
 
     Returns:
         Formatted prompt string
@@ -278,7 +320,10 @@ def build_judge_prompt(
     if len(str(tool_output)) > 2000:
         tool_output = str(tool_output)[:2000] + "\n... (truncated)"
 
-    return STEP_JUDGE_PROMPT.format(
+    # 选择 prompt 模板
+    template = CONVERSATION_JUDGE_PROMPT if domain == "conversation" else STEP_JUDGE_PROMPT
+
+    return template.format(
         task_description=task_description or "(未提供任务描述)",
         step_index=step_index,
         total_steps=total_steps,
@@ -325,6 +370,7 @@ def judge_step(
         context_summary=context_summary,
         rubrics=rubrics,
         task_description=task_description,
+        domain=config.domain,
     )
 
     # 检查 LLM 是否可用

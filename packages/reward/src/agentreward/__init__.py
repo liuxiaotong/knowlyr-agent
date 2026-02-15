@@ -8,7 +8,7 @@ import logging
 __version__ = "0.1.0"
 
 from agentreward.reward import RewardEngine, StepReward, TrajectoryReward
-from agentreward.rubrics import Rubric, RubricSet
+from agentreward.rubrics import Rubric, RubricSet, get_rubric_set_for_domain
 from agentreward.preferences import PreferencePair
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
@@ -19,6 +19,7 @@ __all__ = [
     "TrajectoryReward",
     "Rubric",
     "RubricSet",
+    "get_rubric_set_for_domain",
     "PreferencePair",
     "__version__",
 ]

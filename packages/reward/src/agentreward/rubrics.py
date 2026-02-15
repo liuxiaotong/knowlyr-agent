@@ -103,3 +103,70 @@ def get_default_rubric_set() -> RubricSet:
             ),
         ]
     )
+
+
+def get_conversation_rubric_set() -> RubricSet:
+    """Return rubric set for conversation/dialogue agent evaluation.
+
+    适用于对话类 AI 员工（如 CEO 助理），评估维度侧重回复质量而非工具使用。
+    """
+    return RubricSet(
+        rubrics=[
+            Rubric(
+                id="relevance",
+                name="相关性",
+                description="回复是否直接回应了用户的请求或问题？是否切题？",
+                weight=0.25,
+                evaluator="model",
+            ),
+            Rubric(
+                id="completeness",
+                name="完整性",
+                description="回复是否覆盖了请求的所有方面？是否有重要遗漏？",
+                weight=0.20,
+                evaluator="model",
+            ),
+            Rubric(
+                id="clarity",
+                name="清晰度",
+                description="回复是否条理清晰、结构合理、易于理解？",
+                weight=0.20,
+                evaluator="model",
+            ),
+            Rubric(
+                id="actionability",
+                name="可操作性",
+                description="回复是否提供了具体、可操作的信息或建议？而非泛泛而谈？",
+                weight=0.15,
+                evaluator="model",
+            ),
+            Rubric(
+                id="tone_fit",
+                name="语气匹配",
+                description="回复的语气和风格是否符合角色设定和场景？是否自然？",
+                weight=0.10,
+                evaluator="model",
+            ),
+            Rubric(
+                id="non_redundancy",
+                name="非冗余性",
+                description="这一步操作是否非冗余？是否避免了重复调用？",
+                weight=0.10,
+                evaluator="rule",
+            ),
+        ]
+    )
+
+
+def get_rubric_set_for_domain(domain: str) -> RubricSet:
+    """根据领域获取对应的 RubricSet.
+
+    Args:
+        domain: 领域标识 (coding / conversation / 其他)
+
+    Returns:
+        对应领域的 RubricSet
+    """
+    if domain == "conversation":
+        return get_conversation_rubric_set()
+    return get_default_rubric_set()
