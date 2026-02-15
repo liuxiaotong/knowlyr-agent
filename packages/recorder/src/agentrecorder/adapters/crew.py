@@ -106,8 +106,7 @@ class CrewAdapter(BaseAdapter):
         employee_name = start.get("subject", "unknown")
         args = meta.get("args", {})
 
-        # 提取 prompt 和 assistant 回复
-        prompt_content = ""
+        # 提取 assistant 回复
         assistant_content = ""
         model = ""
         input_tokens = 0
@@ -118,7 +117,7 @@ class CrewAdapter(BaseAdapter):
             if event.get("event") == "message":
                 role = event.get("role", "")
                 if role == "prompt":
-                    prompt_content = event.get("content", "")
+                    pass  # prompt 内容已在 task_desc 中
                 elif role == "assistant":
                     assistant_content = event.get("content", "")
                     emeta = event.get("metadata", {})

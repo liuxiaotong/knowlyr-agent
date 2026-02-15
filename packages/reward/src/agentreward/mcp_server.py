@@ -1,6 +1,7 @@
 """AgentReward MCP Server - Model Context Protocol 服务."""
 
 import json
+from pathlib import Path
 from typing import Any, Dict, List
 
 try:
@@ -223,7 +224,8 @@ def create_server() -> "Server":
 
                 # Score trajectory
                 try:
-                    score_result = score(traj)
+                    engine = RewardEngine(RewardConfig())
+                    score_result = engine.score(traj)
                     total = score_result.total_score
                 except Exception:
                     total = 0.0
