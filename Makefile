@@ -6,7 +6,7 @@ PACKAGES = core sandbox recorder reward hub trainer
 test:
 	@for pkg in $(PACKAGES); do \
 		echo "\n=== Testing $$pkg ==="; \
-		cd packages/$$pkg && python -m pytest tests/ -v && cd ../..; \
+		(cd packages/$$pkg && python -m pytest tests/ -v) || exit 1; \
 	done
 	@echo "\n=== Integration tests ==="
 	python -m pytest tests/integration/ -v
