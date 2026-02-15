@@ -4,6 +4,7 @@
 """
 
 from agentrecorder.adapters.base import BaseAdapter
+from agentrecorder.adapters.crew import CrewAdapter
 from agentrecorder.adapters.openhands import OpenHandsAdapter
 from agentrecorder.adapters.sweagent import SWEAgentAdapter
 
@@ -42,9 +43,11 @@ def list_adapters() -> list[str]:
 register_adapter("openhands", OpenHandsAdapter)
 register_adapter("swe-agent", SWEAgentAdapter)
 register_adapter("sweagent", SWEAgentAdapter)  # 别名
+register_adapter("crew", CrewAdapter)
 
 __all__ = [
     "BaseAdapter",
+    "CrewAdapter",
     "OpenHandsAdapter",
     "SWEAgentAdapter",
     "register_adapter",
