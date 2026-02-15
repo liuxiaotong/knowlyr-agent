@@ -159,6 +159,8 @@ class RewardEngine:
                 model=self.config.model_name,
                 provider=self.config.provider,
                 temperature=self.config.temperature,
+                base_url=self.config.base_url,
+                api_key=self.config.api_key,
             )
             judgments = judge_trajectory(
                 trajectory=trajectory,

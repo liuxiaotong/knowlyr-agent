@@ -25,6 +25,8 @@ class RewardConfig:
     temperature: float = 0.1
     max_retries: int = 3
     domain: str = "coding"
+    base_url: str | None = None
+    api_key: str | None = None
 
     def __post_init__(self):
         """Validate weights sum to 1.0."""

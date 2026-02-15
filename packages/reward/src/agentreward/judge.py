@@ -80,6 +80,8 @@ class JudgeConfig:
     provider: str = "anthropic"
     temperature: float = 0.1
     max_retries: int = 3
+    base_url: str | None = None
+    api_key: str | None = None
 
 
 @dataclass
@@ -107,8 +109,13 @@ def _call_anthropic(prompt: str, config: JudgeConfig) -> str:
 
 
 def _call_openai(prompt: str, config: JudgeConfig) -> str:
-    """通过 OpenAI API 调用 LLM."""
-    client = openai.OpenAI()
+    """通过 OpenAI 兼容 API 调用 LLM（支持 moonshot 等）."""
+    kwargs: dict[str, Any] = {}
+    if config.base_url:
+        kwargs["base_url"] = config.base_url
+    if config.api_key:
+        kwargs["api_key"] = config.api_key
+    client = openai.OpenAI(**kwargs)
     response = client.chat.completions.create(
         model=config.model,
         max_tokens=1024,
