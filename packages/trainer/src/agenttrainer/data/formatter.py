@@ -113,6 +113,18 @@ def format_grpo(
 # ── 内部辅助 ──────────────────────────────────────────────
 
 
+def _to_1d_tensor(ids: Any) -> torch.Tensor:
+    """将 tokenize 结果统一转为 1D LongTensor."""
+    if isinstance(ids, torch.Tensor):
+        return ids[0] if ids.dim() == 2 else ids
+    if isinstance(ids, list):
+        return torch.tensor(ids, dtype=torch.long)
+    # BatchEncoding 等对象 → 取 input_ids
+    if hasattr(ids, "input_ids"):
+        return _to_1d_tensor(ids.input_ids)
+    return torch.tensor(list(ids), dtype=torch.long)
+
+
 def _apply_chat_template(
     tokenizer: PreTrainedTokenizer,
     messages: list[dict[str, Any]],
@@ -124,20 +136,14 @@ def _apply_chat_template(
             messages,
             add_generation_prompt=False,
             tokenize=True,
-            return_tensors="pt",
-            truncation=True,
-            max_length=max_length,
         )
-        if ids.dim() == 2:
-            ids = ids[0]
-        return ids
+        ids = _to_1d_tensor(ids)
+        return ids[:max_length]
 
     # 回退: 手动拼接
     text = _messages_to_text(messages)
-    ids = tokenizer.encode(text, truncation=True, max_length=max_length, return_tensors="pt")
-    if ids.dim() == 2:
-        ids = ids[0]
-    return ids
+    ids = tokenizer.encode(text, truncation=True, max_length=max_length)
+    return _to_1d_tensor(ids)
 
 
 def _apply_chat_template_prompt(
@@ -151,20 +157,14 @@ def _apply_chat_template_prompt(
             messages,
             add_generation_prompt=True,
             tokenize=True,
-            return_tensors="pt",
-            truncation=True,
-            max_length=max_length,
         )
-        if ids.dim() == 2:
-            ids = ids[0]
-        return ids
+        ids = _to_1d_tensor(ids)
+        return ids[:max_length]
 
     # 回退
     text = _messages_to_text(messages) + "assistant: "
-    ids = tokenizer.encode(text, truncation=True, max_length=max_length, return_tensors="pt")
-    if ids.dim() == 2:
-        ids = ids[0]
-    return ids
+    ids = tokenizer.encode(text, truncation=True, max_length=max_length)
+    return _to_1d_tensor(ids)
 
 
 def _has_chat_template(tokenizer: PreTrainedTokenizer) -> bool:

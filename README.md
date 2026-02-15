@@ -31,7 +31,7 @@
 | [**knowlyr-core**](packages/core/) | 共享模型 + Gym 协议 (AgentEnv, TimeStep, Wrapper, Registry) | — | — | 96 |
 | [**knowlyr-sandbox**](packages/sandbox/) | Docker 沙箱执行环境 + SandboxEnv 适配器 | `knowlyr-sandbox` | 5 Tools | 65 |
 | [**knowlyr-recorder**](packages/recorder/) | Agent 轨迹录制、格式转换、适配器注册表 | `knowlyr-recorder` | 4 Tools | 62 |
-| [**knowlyr-reward**](packages/reward/) | 过程级 Rubric Reward (规则层 + LLM-as-Judge)，多领域 ToolClassifier | `knowlyr-reward` | 5 Tools | 131 |
+| [**knowlyr-reward**](packages/reward/) | 过程级 Rubric Reward (规则层 + LLM-as-Judge)，多领域 ToolClassifier，对话领域评分 | `knowlyr-reward` | 5 Tools | 131 |
 | [**knowlyr-hub**](packages/hub/) | Pipeline 编排、轨迹收集 (collect)、数据集导出 (SFT/DPO/GRPO) | `knowlyr-hub` | 5 Tools | 73 |
 | [**knowlyr-trainer**](packages/trainer/) | Agent 轨迹训练 (SFT/DPO/GRPO)，观察遮蔽、步骤加权、课程学习 | `knowlyr-trainer` | — | 76 |
 
@@ -96,29 +96,35 @@ knowlyr-reward score trajectory.json
 # 3. 对浏览器 Agent 轨迹评分（指定领域）
 knowlyr-reward score browser_traj.json --domain browser
 
-# 4. 使用自定义 DomainProfile 评分
+# 4. 对话领域评分（数字员工回复质量）
+knowlyr-reward score conversation_traj.json --domain conversation
+
+# 5. 使用自定义 DomainProfile 评分
 knowlyr-reward score traj.json --domain examples/browser_profile.json
 
-# 5. 比较同一任务的多条轨迹
+# 6. 使用第三方 OpenAI 兼容 API 做 LLM Judge（Moonshot 等）
+knowlyr-reward score traj.json --llm --base-url https://api.moonshot.cn/v1
+
+# 7. 比较同一任务的多条轨迹
 knowlyr-reward compare traj_a.json traj_b.json
 
-# 6. Hub: 处理单个日志 → 带 Reward 的标准轨迹
+# 8. Hub: 处理单个日志 → 带 Reward 的标准轨迹
 knowlyr-hub process agent_log.jsonl -f openhands --save
 
-# 7. Hub: 批量处理日志目录
+# 9. Hub: 批量处理日志目录
 knowlyr-hub process-batch ./logs/ -f sweagent -p "*.json"
 
-# 8. 导出为训练格式
+# 10. 导出为训练格式
 knowlyr-hub export --format sft -t output/trajectories.jsonl -o sft_data.jsonl
 knowlyr-hub export --format dpo -t output/trajectories.jsonl -p output/preferences.jsonl -o dpo_data.jsonl
 knowlyr-hub export --format grpo -t output/trajectories.jsonl -o grpo_data.jsonl
 
-# 9. 训练模型（Agent 模式: 观察遮蔽 + 步骤加权）
+# 11. 训练模型（Agent 模式: 观察遮蔽 + 步骤加权）
 knowlyr-trainer sft --train-file sft_data.jsonl --model Qwen/Qwen2.5-Coder-7B
 knowlyr-trainer dpo --train-file dpo_data.jsonl --model ./output/sft/final --beta 0.1
 knowlyr-trainer grpo --train-file grpo_data.jsonl --model ./output/sft/final
 
-# 10. 发布到 HuggingFace
+# 12. 发布到 HuggingFace
 knowlyr-hub publish -t output/trajectories.jsonl --repo-id user/my-dataset --generate-card
 ```
 
@@ -148,6 +154,11 @@ from agentreward import RewardEngine
 profile = load_domain_profile("browser_profile.json")
 engine = RewardEngine(profile=profile)
 result = engine.score(browser_trajectory_data)
+
+# 对话领域: 评估数字员工回复质量
+from knowlyrcore.domain import CONVERSATION_PROFILE
+engine = RewardEngine(profile=CONVERSATION_PROFILE)
+result = engine.score(conversation_trajectory_data)
 ```
 
 <details>
@@ -273,7 +284,9 @@ curriculum: true            # 从简单到困难渐进式训练
 
 ## 多领域支持
 
-默认为 **coding** 领域（Code Agent / SWE-bench），同时支持 Browser Agent、Data Analysis 等任意 tool-use agent 领域。通过 `DomainProfile` 声明式配置，告诉每个包当前在哪个领域运行。
+默认为 **coding** 领域（Code Agent / SWE-bench），同时支持 Browser Agent、**Conversation Agent（数字员工）** 等任意 tool-use agent 领域。通过 `DomainProfile` 声明式配置，告诉每个包当前在哪个领域运行。
+
+> 新增 **conversation** 领域：专为对话型 AI 员工设计，评估维度为相关性、完整性、清晰度、可操作性、语气匹配，而非工具调用正确性。支持 OpenAI 兼容 base_url（Moonshot 等）做 LLM Judge。
 
 ### 内置领域
 
@@ -281,6 +294,7 @@ curriculum: true            # 从简单到困难渐进式训练
 |------|---------|------|-----------|
 | `coding` | `CODING_PROFILE` | Code Agent (默认) | read_file, edit_file, bash, grep, submit... |
 | `browser` | `BROWSER_PROFILE` | Browser Agent | navigate, click, type_text, screenshot, scroll... |
+| `conversation` | `CONVERSATION_PROFILE` | 对话 Agent (数字员工) | respond, query_stats, send_message, delegate, web_search, create_note, think |
 | `generic` | `GENERIC_PROFILE` | 通用 (无预定义工具) | 规则层退化为启发式模式 |
 
 <details>
