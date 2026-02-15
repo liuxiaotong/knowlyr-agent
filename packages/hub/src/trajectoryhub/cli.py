@@ -94,7 +94,7 @@ def run(
 @click.option(
     "--format",
     "export_format",
-    type=click.Choice(["sft", "dpo", "benchmark", "huggingface"]),
+    type=click.Choice(["sft", "dpo", "grpo", "benchmark", "huggingface"]),
     required=True,
     help="导出格式",
 )
@@ -124,6 +124,8 @@ def export(
         result = exporter.export_sft(output)
     elif export_format == "dpo":
         result = exporter.export_dpo(output)
+    elif export_format == "grpo":
+        result = exporter.export_grpo(output)
     elif export_format == "benchmark":
         result = exporter.export_benchmark(output)
     elif export_format == "huggingface":

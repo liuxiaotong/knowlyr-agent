@@ -9,9 +9,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 <br/>
 [![CI](https://github.com/liuxiaotong/knowlyr-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/liuxiaotong/knowlyr-agent/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-444_passed-brightgreen.svg)](#开发)
+[![Tests](https://img.shields.io/badge/tests-520_passed-brightgreen.svg)](#开发)
 [![MCP](https://img.shields.io/badge/MCP-19_Tools-purple.svg)](#mcp-server)
-[![Packages](https://img.shields.io/badge/packages-5-orange.svg)](#子包一览)
+[![Packages](https://img.shields.io/badge/packages-6-orange.svg)](#子包一览)
 
 [子包一览](#子包一览) · [架构](#架构) · [安装](#安装) · [快速开始](#快速开始) · [Gym-Style API](#gym-style-api) · [多领域支持](#多领域支持) · [MCP Server](#mcp-server) · [开发](#开发) · [生态](#data-pipeline-生态)
 
@@ -19,10 +19,10 @@
 
 ---
 
-> 🎯 **5 包 Monorepo** core · sandbox · recorder · reward · hub，独立安装、独立 MCP
+> 🎯 **6 包 Monorepo** core · sandbox · recorder · reward · hub · trainer，独立安装、独立 MCP
 > 🏋️ **Gym-Style API** AgentEnv / TimeStep / Wrapper / Registry，兼容 Gymnasium 生态
 > 🌐 **多领域支持** Coding · Browser · 自定义 DomainProfile，声明式配置切换领域
-> 📦 **训练格式导出** SFT / DPO / HuggingFace 一键发布
+> 🧠 **Agent 训练** SFT / DPO / GRPO + 观察遮蔽、步骤加权、课程学习
 
 ## 子包一览
 
@@ -32,9 +32,10 @@
 | [**knowlyr-sandbox**](packages/sandbox/) | Docker 沙箱执行环境 + SandboxEnv 适配器 | `knowlyr-sandbox` | 5 Tools | 65 |
 | [**knowlyr-recorder**](packages/recorder/) | Agent 轨迹录制、格式转换、适配器注册表 | `knowlyr-recorder` | 4 Tools | 62 |
 | [**knowlyr-reward**](packages/reward/) | 过程级 Rubric Reward (规则层 + LLM-as-Judge)，多领域 ToolClassifier | `knowlyr-reward` | 5 Tools | 131 |
-| [**knowlyr-hub**](packages/hub/) | Pipeline 编排、轨迹收集 (collect)、数据集导出 (SFT/DPO/HuggingFace) | `knowlyr-hub` | 5 Tools | 73 |
+| [**knowlyr-hub**](packages/hub/) | Pipeline 编排、轨迹收集 (collect)、数据集导出 (SFT/DPO/GRPO) | `knowlyr-hub` | 5 Tools | 73 |
+| [**knowlyr-trainer**](packages/trainer/) | Agent 轨迹训练 (SFT/DPO/GRPO)，观察遮蔽、步骤加权、课程学习 | `knowlyr-trainer` | — | 76 |
 
-每个包**独立安装、独立使用**，sandbox / recorder / reward 三者无交叉依赖。Hub 通过可选依赖串联全部包。
+每个包**独立安装、独立使用**，sandbox / recorder / reward / trainer 无交叉依赖。Hub 通过可选依赖串联数据管线，Trainer 消费 Hub 导出的 JSONL。
 
 ## 架构
 
@@ -48,11 +49,12 @@ graph TD
     S -->|raw log| R["knowlyr-recorder<br/>适配器 → 标准化轨迹"]
     R -->|Trajectory| W["knowlyr-reward<br/>ToolClassifier → 过程级 Reward"]
     W -->|scored trajectory| H["knowlyr-hub<br/>collect() · Pipeline 编排"]
-    H --> O1["SFT 数据集"]
-    H --> O2["DPO 偏好对"]
+    H -->|SFT/DPO/GRPO JSONL| TR["knowlyr-trainer<br/>SFT · DPO · GRPO<br/>观察遮蔽 · 步骤加权 · 课程学习"]
     H --> O3["HuggingFace 发布"]
+    TR --> M["训练后模型"]
 
     style C fill:#2d333b,color:#adbac7,stroke:#444c56
+    style TR fill:#0969da,color:#fff,stroke:#0969da
 ```
 
 ## 安装
@@ -70,9 +72,12 @@ pip install knowlyr-sandbox    # 沙箱执行
 pip install knowlyr-recorder   # 轨迹录制
 pip install knowlyr-reward     # Reward 评分
 pip install knowlyr-hub        # Pipeline 编排
+pip install knowlyr-trainer    # Agent 训练
 
-# Reward LLM-as-Judge 需要额外安装
-pip install knowlyr-reward[llm]   # anthropic + openai
+# 可选依赖
+pip install knowlyr-reward[llm]      # LLM-as-Judge (anthropic + openai)
+pip install knowlyr-trainer[peft]    # LoRA 微调
+pip install knowlyr-trainer[wandb]   # wandb 日志
 ```
 
 </details>
@@ -106,8 +111,14 @@ knowlyr-hub process-batch ./logs/ -f sweagent -p "*.json"
 # 8. 导出为训练格式
 knowlyr-hub export --format sft -t output/trajectories.jsonl -o sft_data.jsonl
 knowlyr-hub export --format dpo -t output/trajectories.jsonl -p output/preferences.jsonl -o dpo_data.jsonl
+knowlyr-hub export --format grpo -t output/trajectories.jsonl -o grpo_data.jsonl
 
-# 9. 发布到 HuggingFace
+# 9. 训练模型（Agent 模式: 观察遮蔽 + 步骤加权）
+knowlyr-trainer sft --train-file sft_data.jsonl --model Qwen/Qwen2.5-Coder-7B
+knowlyr-trainer dpo --train-file dpo_data.jsonl --model ./output/sft/final --beta 0.1
+knowlyr-trainer grpo --train-file grpo_data.jsonl --model ./output/sft/final
+
+# 10. 发布到 HuggingFace
 knowlyr-hub publish -t output/trajectories.jsonl --repo-id user/my-dataset --generate-card
 ```
 
@@ -218,6 +229,48 @@ trajs = collect(
 
 </details>
 
+<details>
+<summary>🧠 Agent 训练</summary>
+
+## Agent 训练
+
+[knowlyr-trainer](packages/trainer/) 提供纯 PyTorch 的 SFT / DPO / GRPO 训练，专为 Agent 长程任务设计。
+
+### 端到端 Pipeline
+
+```bash
+# 1. 数据准备（通过 hub 导出）
+knowlyr-hub export --format sft -t trajectories.jsonl -o sft_data.jsonl
+
+# 2. Agent 模式 SFT 训练
+knowlyr-trainer sft --train-file sft_data.jsonl \
+  --model Qwen/Qwen2.5-Coder-7B \
+  --config agent_train.yaml
+```
+
+```yaml
+# agent_train.yaml
+agent_format: true          # 多轮对话格式
+mask_observations: true     # 只对 thought+action 计算 loss
+step_weighted_loss: true    # 步骤级 reward 加权
+curriculum: true            # 从简单到困难渐进式训练
+```
+
+### Agent 训练增强
+
+| 增强 | 说明 |
+|------|------|
+| 多轮对话格式 | 每步拆为 assistant(thought+action) / user(observation) |
+| 观察遮蔽 | 环境 observation 不参与 loss，模型只学习决策 |
+| 步骤加权 loss | 用 process reward 加权每步的 CE loss |
+| 长轨迹分块 | 超过 max_length 的轨迹按步骤边界拆分 |
+| 课程学习 | 从短/简单轨迹到长/困难轨迹渐进训练 |
+| 步骤级 GRPO | 轨迹级 advantage × 步骤 reward 加权 |
+
+详见 [`packages/trainer/README.md`](packages/trainer/README.md)。
+
+</details>
+
 ## 多领域支持
 
 默认为 **coding** 领域（Code Agent / SWE-bench），同时支持 Browser Agent、Data Analysis 等任意 tool-use agent 领域。通过 `DomainProfile` 声明式配置，告诉每个包当前在哪个领域运行。
@@ -311,7 +364,7 @@ git clone https://github.com/liuxiaotong/knowlyr-agent.git
 cd knowlyr-agent
 
 make install-dev        # 开发模式安装全部包
-make test               # 运行全部测试 (444 passed)
+make test               # 运行全部测试 (520 passed)
 make test-sandbox       # 单独测试某个包
 make test-integration   # 跨包集成测试 (17 tests)
 make lint               # ruff 检查
@@ -333,7 +386,7 @@ make build              # 构建全部包
 | 质检 | **DataCheck** | knowlyr-datacheck | 规则验证、重复检测 | [GitHub](https://github.com/liuxiaotong/data-check) |
 | 审计 | **ModelAudit** | knowlyr-modelaudit | 蒸馏检测、模型指纹 | [GitHub](https://github.com/liuxiaotong/model-audit) |
 | 协作 | **Crew** | knowlyr-crew | 数字员工管理 | [GitHub](https://github.com/liuxiaotong/knowlyr-crew) |
-| Agent | **knowlyr-agent** | sandbox/recorder/reward/hub | Agent 工具链 | You are here |
+| Agent | **knowlyr-agent** | sandbox/recorder/reward/hub/trainer | Agent 工具链 + 训练 | You are here |
 
 <details>
 <summary>🗺️ 生态架构图</summary>
@@ -352,6 +405,7 @@ graph LR
         Hub["🎯 Hub<br/>编排层"] --> Sandbox["📦 Sandbox<br/>执行沙箱"]
         Sandbox --> Recorder["📹 Recorder<br/>轨迹录制"]
         Recorder --> Reward["⭐ Reward<br/>过程打分"]
+        Reward --> Trainer["🧠 Trainer<br/>SFT/DPO/GRPO"]
     end
     Crew["👥 Crew<br/>数字员工"]
     Crew -.-> Radar
@@ -362,6 +416,7 @@ graph LR
     style Sandbox fill:#0969da,color:#fff,stroke:#0969da
     style Recorder fill:#0969da,color:#fff,stroke:#0969da
     style Reward fill:#0969da,color:#fff,stroke:#0969da
+    style Trainer fill:#0969da,color:#fff,stroke:#0969da
 ```
 
 </details>

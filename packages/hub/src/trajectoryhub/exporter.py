@@ -241,6 +241,93 @@ class DatasetExporter:
                 error=str(e),
             )
 
+    def export_grpo(self, output_path: str, group_size: int = 8) -> ExportResult:
+        """导出为 GRPO 分组训练格式.
+
+        将同一 task_id 的多条轨迹分组，用于 Group Relative Policy Optimization 训练。
+        每组至少 2 条轨迹才能计算 group advantage。
+
+        GRPO 格式 (每行一个 JSON):
+        ```json
+        {
+            "task_id": "任务 ID",
+            "prompt": "任务描述",
+            "trajectories": [
+                {"response": "执行轨迹文本", "reward": 0.85},
+                {"response": "执行轨迹文本", "reward": 0.55}
+            ]
+        }
+        ```
+
+        Args:
+            output_path: 输出文件路径
+            group_size: 每组最大轨迹数
+
+        Returns:
+            ExportResult: 导出结果
+        """
+        try:
+            trajectories = self._load_trajectories()
+            logger.info("导出 GRPO: 加载 %d 条轨迹", len(trajectories))
+
+            # 按 task_id 分组
+            task_groups: Dict[str, List[Dict[str, Any]]] = {}
+            for traj in trajectories:
+                tid = traj.get("task_id", "")
+                if not tid:
+                    continue
+                if tid not in task_groups:
+                    task_groups[tid] = []
+                task_groups[tid].append(traj)
+
+            output = Path(output_path)
+            output.parent.mkdir(parents=True, exist_ok=True)
+
+            total_groups = 0
+            with open(output, "w", encoding="utf-8") as f:
+                for task_id, group in task_groups.items():
+                    if len(group) < 2:
+                        continue  # 至少需要 2 条才能计算 advantage
+
+                    # 按 reward 排序，取 top group_size 条
+                    sorted_group = sorted(
+                        group, key=lambda t: t.get("reward", 0.0), reverse=True
+                    )
+                    selected = sorted_group[:group_size]
+
+                    metadata = selected[0].get("metadata", {})
+                    record = {
+                        "task_id": task_id,
+                        "prompt": metadata.get(
+                            "task_description", f"Solve task: {task_id}"
+                        ),
+                        "trajectories": [
+                            {
+                                "response": self._steps_to_text(t.get("steps", [])),
+                                "reward": t.get("reward", 0.0),
+                            }
+                            for t in selected
+                        ],
+                    }
+                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    total_groups += 1
+
+            logger.info("GRPO 导出完成: %d 组 -> %s", total_groups, output)
+            return ExportResult(
+                success=True,
+                output_path=str(output),
+                total_records=total_groups,
+                format="grpo",
+            )
+
+        except Exception as e:
+            logger.exception("GRPO 导出失败")
+            return ExportResult(
+                success=False,
+                format="grpo",
+                error=str(e),
+            )
+
     def export_benchmark(self, output_path: str) -> ExportResult:
         """导出为评测基准格式.
 

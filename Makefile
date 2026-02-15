@@ -1,6 +1,6 @@
-.PHONY: test test-core test-sandbox test-recorder test-reward test-hub test-integration lint build clean
+.PHONY: test test-core test-sandbox test-recorder test-reward test-hub test-trainer test-integration lint build clean
 
-PACKAGES = core sandbox recorder reward hub
+PACKAGES = core sandbox recorder reward hub trainer
 
 # 测试全部包（含集成测试）
 test:
@@ -26,6 +26,9 @@ test-reward:
 
 test-hub:
 	cd packages/hub && python -m pytest tests/ -v
+
+test-trainer:
+	cd packages/trainer && python -m pytest tests/ -v
 
 test-integration:
 	python -m pytest tests/integration/ -v
