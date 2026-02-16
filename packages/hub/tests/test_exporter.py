@@ -216,6 +216,73 @@ class TestDatasetExporter:
         finally:
             exp_mod._HAS_HF = original
 
+    def test_export_grpo(self):
+        """Test GRPO format export."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            # 需要同 task_id 的多条轨迹
+            traj_path = tmp_path / "trajectories.jsonl"
+            trajectories = [
+                {
+                    "task_id": "task-001",
+                    "agent_model": "model-a",
+                    "steps": [{"action": "read", "observation": "ok"}],
+                    "success": True,
+                    "reward": 0.9,
+                    "metadata": {"task_description": "Fix bug"},
+                },
+                {
+                    "task_id": "task-001",
+                    "agent_model": "model-b",
+                    "steps": [{"action": "write", "observation": "done"}],
+                    "success": True,
+                    "reward": 0.5,
+                    "metadata": {"task_description": "Fix bug"},
+                },
+                {
+                    "task_id": "task-002",
+                    "agent_model": "model-a",
+                    "steps": [{"action": "read", "observation": "ok"}],
+                    "success": True,
+                    "reward": 0.7,
+                    "metadata": {"task_description": "Add feature"},
+                },
+            ]
+            with open(traj_path, "w", encoding="utf-8") as f:
+                for traj in trajectories:
+                    f.write(json.dumps(traj, ensure_ascii=False) + "\n")
+
+            output_path = tmp_path / "grpo_output.jsonl"
+            exporter = DatasetExporter(trajectories_dir=str(traj_path))
+            result = exporter.export_grpo(str(output_path), group_size=4)
+
+            assert result.success is True
+            assert result.format == "grpo"
+            assert result.total_records == 1  # 只有 task-001 有 >=2 条
+
+            with open(output_path, "r", encoding="utf-8") as f:
+                records = [json.loads(line) for line in f if line.strip()]
+            assert len(records) == 1
+            assert records[0]["task_id"] == "task-001"
+            assert len(records[0]["trajectories"]) == 2
+            # 按 reward 降序排列
+            assert records[0]["trajectories"][0]["reward"] >= records[0]["trajectories"][1]["reward"]
+
+    def test_export_grpo_empty(self):
+        """所有 task 只有 1 条轨迹时 GRPO 应返回 0 条."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            traj_path = tmp_path / "trajectories.jsonl"
+            with open(traj_path, "w", encoding="utf-8") as f:
+                f.write(json.dumps({"task_id": "t-1", "reward": 0.5, "steps": []}) + "\n")
+
+            output_path = tmp_path / "grpo_output.jsonl"
+            exporter = DatasetExporter(trajectories_dir=str(traj_path))
+            result = exporter.export_grpo(str(output_path))
+
+            assert result.success is True
+            assert result.total_records == 0
+
     def test_export_huggingface_with_mock(self):
         """有 huggingface_hub 时应调用 API 上传."""
         from unittest.mock import MagicMock, patch

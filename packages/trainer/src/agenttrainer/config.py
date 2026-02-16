@@ -10,7 +10,29 @@ from pydantic import BaseModel, Field
 
 
 class TrainConfig(BaseModel):
-    """共享训练配置基类."""
+    """共享训练配置基类.
+
+    所有训练方式（SFT、DPO、GRPO）的公共配置。支持从 YAML 文件加载和 CLI 参数覆盖。
+
+    Example::
+
+        from agenttrainer import TrainConfig
+
+        # 从 YAML 加载
+        config = TrainConfig.from_yaml("train_config.yaml")
+
+        # CLI 参数覆盖
+        config = config.merge_cli(learning_rate=1e-5, num_epochs=5)
+
+        # 直接构造
+        config = TrainConfig(
+            model_name_or_path="Qwen/Qwen2.5-Coder-7B",
+            train_file="./data/train.jsonl",
+            agent_format=True,
+            mask_observations=True,
+            output_dir="./checkpoints",
+        )
+    """
 
     # 模型
     model_name_or_path: str = "Qwen/Qwen2.5-Coder-7B"
@@ -83,7 +105,25 @@ class TrainConfig(BaseModel):
 
 
 class SFTConfig(TrainConfig):
-    """SFT 训练配置."""
+    """SFT 训练配置.
+
+    在 TrainConfig 基础上增加课程学习（Curriculum Learning）支持。
+
+    Example::
+
+        from agenttrainer import SFTConfig
+
+        config = SFTConfig(
+            model_name_or_path="Qwen/Qwen2.5-Coder-7B",
+            train_file="./data/sft_train.jsonl",
+            agent_format=True,
+            mask_observations=True,
+            curriculum=True,              # 启用课程学习
+            curriculum_start_ratio=0.3,   # 初始只用 30% 简单样本
+            curriculum_warmup_epochs=1,   # 1 epoch 后使用全部数据
+            output_dir="./checkpoints/sft",
+        )
+    """
 
     # Curriculum learning — 从简单样本逐步过渡到困难样本
     curriculum: bool = False
@@ -92,14 +132,46 @@ class SFTConfig(TrainConfig):
 
 
 class DPOConfig(TrainConfig):
-    """DPO 训练配置."""
+    """DPO 训练配置.
+
+    Direct Preference Optimization 训练。需要偏好对数据（chosen/rejected）。
+
+    Example::
+
+        from agenttrainer import DPOConfig
+
+        config = DPOConfig(
+            model_name_or_path="Qwen/Qwen2.5-Coder-7B",
+            train_file="./data/dpo_train.jsonl",
+            beta=0.1,              # KL 惩罚系数（越大越保守）
+            label_smoothing=0.0,   # 标签平滑
+            output_dir="./checkpoints/dpo",
+        )
+    """
 
     beta: float = 0.1
     label_smoothing: float = 0.0
 
 
 class GRPOConfig(TrainConfig):
-    """GRPO 训练配置."""
+    """GRPO 训练配置.
+
+    Group Relative Policy Optimization 训练。需要分组轨迹数据。
+
+    Example::
+
+        from agenttrainer import GRPOConfig
+
+        config = GRPOConfig(
+            model_name_or_path="Qwen/Qwen2.5-Coder-7B",
+            train_file="./data/grpo_train.jsonl",
+            group_size=8,              # 每组轨迹数
+            clip_epsilon=0.2,          # PPO clip 范围
+            kl_coef=0.01,             # KL 惩罚系数
+            step_level_advantage=True, # 使用步骤级 advantage
+            output_dir="./checkpoints/grpo",
+        )
+    """
 
     group_size: int = 8
     clip_epsilon: float = 0.2

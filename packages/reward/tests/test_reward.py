@@ -112,6 +112,53 @@ class TestTrajectoryReward:
 # ── RewardEngine 测试 ─────────────────────────────────────────────
 
 
+class TestRewardConfig:
+    """测试 RewardConfig 配置类."""
+
+    def test_to_dict(self):
+        """to_dict 应包含所有关键字段."""
+        config = RewardConfig()
+        d = config.to_dict()
+        assert d["rule_weight"] == 0.6
+        assert d["model_weight"] == 0.4
+        assert d["domain"] == "coding"
+        assert d["rubric_set"] == "default"
+        assert "model_name" in d
+        assert "provider" in d
+
+    def test_to_dict_custom(self):
+        """自定义配置的 to_dict 应反映修改."""
+        config = RewardConfig(
+            rule_weight=0.8, model_weight=0.2, domain="conversation",
+        )
+        d = config.to_dict()
+        assert d["rule_weight"] == 0.8
+        assert d["domain"] == "conversation"
+
+    def test_optional_fields(self):
+        """base_url 和 api_key 默认为 None."""
+        config = RewardConfig()
+        assert config.base_url is None
+        assert config.api_key is None
+
+    def test_custom_optional_fields(self):
+        """自定义 base_url 和 api_key 应生效."""
+        config = RewardConfig(
+            base_url="https://api.example.com",
+            api_key="sk-test",
+        )
+        assert config.base_url == "https://api.example.com"
+        assert config.api_key == "sk-test"
+
+    def test_weights_boundary(self):
+        """极端权重分配应可用."""
+        config_rule_only = RewardConfig(rule_weight=1.0, model_weight=0.0)
+        assert config_rule_only.rule_weight == 1.0
+
+        config_model_only = RewardConfig(rule_weight=0.0, model_weight=1.0)
+        assert config_model_only.model_weight == 1.0
+
+
 class TestRewardEngine:
     """测试 RewardEngine 核心评分逻辑."""
 

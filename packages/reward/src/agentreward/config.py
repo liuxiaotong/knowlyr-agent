@@ -15,6 +15,20 @@ class RewardConfig:
         provider: LLM provider (anthropic, openai)
         temperature: Sampling temperature for judge calls
         max_retries: Maximum retries on LLM failure
+        domain: Domain identifier (coding/conversation/engineering/advisory)
+        base_url: Custom API base URL (for proxy or self-hosted models)
+        api_key: API key override (default: from environment variable)
+
+    典型配置::
+
+        # 纯规则（快速，无网络调用）
+        RewardConfig(rule_weight=1.0, model_weight=0.0)
+
+        # 规则主导（推荐，平衡速度与质量）
+        RewardConfig(rule_weight=0.7, model_weight=0.3, model_name="gpt-4o-mini")
+
+        # 模型主导（语义评分为主，更准但慢）
+        RewardConfig(rule_weight=0.3, model_weight=0.7, model_name="claude-sonnet-4-20250514")
     """
 
     rule_weight: float = 0.6

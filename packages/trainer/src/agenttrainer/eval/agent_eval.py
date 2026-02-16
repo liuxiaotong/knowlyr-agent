@@ -231,10 +231,27 @@ def compare_agents(
         multiple_testing_correction: 是否应用 Bonferroni 校正 (>2 agents 时)
 
     Returns:
-        {agent_name: evaluate_agent 结果} 字典，额外包含:
-        - ``_leaderboard``: 按 avg_reward 排序的排行榜
-        - ``_comparisons``: 两两显著性检验结果
-        - ``_corrected``: 校正后显著性 (>2 agents 且启用校正时)
+        {agent_name: evaluate_agent 结果} 字典，额外包含::
+
+            {
+                "agent_a": { ... evaluate_agent 结果 ... },
+                "agent_b": { ... evaluate_agent 结果 ... },
+                "_leaderboard": [           # 按 avg_reward 降序排行
+                    {"rank": 1, "agent": "agent_a", "success_rate": 0.8,
+                     "avg_reward": 0.72, "avg_steps": 4.5},
+                    {"rank": 2, "agent": "agent_b", ...},
+                ],
+                "_comparisons": {           # 两两 Welch's t 检验
+                    "agent_a_vs_agent_b": {
+                        "t_statistic": 2.31, "p_approx": "p<0.05",
+                        "significant": True, "effect_size": 0.65,
+                    },
+                },
+                "_corrected": {             # Bonferroni 校正 (>2 agents)
+                    "agent_a_vs_agent_b": True,
+                    "agent_a_vs_agent_c": False,
+                },
+            }
     """
     results: dict[str, dict[str, Any]] = {}
 

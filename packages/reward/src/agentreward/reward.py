@@ -86,6 +86,32 @@ class RewardEngine:
     Args:
         config: RewardConfig with weights and model settings
         rubric_set: Optional RubricSet override (defaults to built-in set)
+        profile: Optional DomainProfile override (defaults to config.domain)
+
+    Example::
+
+        from agentreward.config import RewardConfig
+        from agentreward.reward import RewardEngine
+
+        # 纯规则评分（快速，无 LLM 调用）
+        engine = RewardEngine()
+        trajectory = {
+            "task": "修复登录 bug",
+            "steps": [
+                {"tool": "read_file", "params": {"path": "/auth.py"}, "output": "..."},
+                {"tool": "edit_file", "params": {"path": "/auth.py"}, "output": "ok"},
+                {"tool": "bash", "params": {"command": "pytest"}, "output": "2 passed"},
+            ],
+            "outcome": {"success": True, "tests_passed": 2, "tests_total": 2},
+        }
+        result = engine.score(trajectory)
+        print(f"总分: {result.total_score:.3f}")
+        print(f"结果分: {result.outcome_score:.3f}")
+        print(f"过程分: {result.process_score:.3f}")
+
+        # 带 LLM Judge 的评分
+        config = RewardConfig(rule_weight=0.7, model_weight=0.3, model_name="gpt-4o-mini")
+        engine = RewardEngine(config=config)
     """
 
     def __init__(

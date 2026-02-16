@@ -64,10 +64,30 @@ def build_preferences(
             - id: str (trajectory identifier)
             - reward: float (reward score)
             - (optional) summary: str (for generating rationale)
+            - (optional) step_count: int
+            - (optional) outcome_score: float
         min_margin: Minimum score difference to include a pair (default: 0.05)
 
     Returns:
         List of PreferencePair objects
+
+    Example::
+
+        trajectories_by_task = {
+            "task-1": [
+                {"id": "traj-a", "reward": 0.9, "step_count": 3},
+                {"id": "traj-b", "reward": 0.5, "step_count": 8},
+                {"id": "traj-c", "reward": 0.2, "step_count": 12},
+            ],
+            "task-2": [
+                {"id": "traj-d", "reward": 0.8},
+                {"id": "traj-e", "reward": 0.3},
+            ],
+        }
+        pairs = build_preferences(trajectories_by_task, min_margin=0.1)
+        for pair in pairs:
+            print(f"{pair.chosen_trajectory_id} > {pair.rejected_trajectory_id}"
+                  f" (margin={pair.margin():.2f})")
     """
     pairs: list[PreferencePair] = []
 
