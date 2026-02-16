@@ -43,6 +43,9 @@ class TrainConfig(BaseModel):
     save_steps: int = 500
     seed: int = 42
 
+    # 恢复训练 — 从 checkpoint 目录继续 (包含 training_state.pt)
+    resume_from_checkpoint: str | None = None
+
     # wandb (需要 knowlyr-trainer[wandb])
     wandb_project: str | None = None
     wandb_run_name: str | None = None

@@ -7,7 +7,7 @@ import logging
 
 __version__ = "0.1.0"
 
-from trajectoryhub.collect import collect, make_reward_fn
+from trajectoryhub.collect import collect, collect_parallel, make_reward_fn
 from trajectoryhub.pipeline import Pipeline, PipelineConfig, PipelineResult, Trajectory
 from trajectoryhub.exporter import DatasetExporter
 from trajectoryhub.inference import create_model_agent
@@ -21,6 +21,7 @@ __all__ = [
     "Trajectory",
     "DatasetExporter",
     "collect",
+    "collect_parallel",
     "make_reward_fn",
     "create_model_agent",
     "__version__",

@@ -234,14 +234,15 @@ class SFTTrainer(BaseTrainer):
         optimizer = self._build_optimizer(model)
         scheduler = self._build_scheduler(optimizer, max(total_steps, 1))
 
+        # 恢复训练状态
+        global_step = self._maybe_resume(optimizer, scheduler)
+
         logger.info(
-            "开始 SFT 训练: %d 条数据, %d epochs, %d total steps%s",
+            "开始 SFT 训练: %d 条数据, %d epochs, %d total steps%s%s",
             len(dataset), self.config.num_epochs, total_steps,
             " (agent 模式)" if self.config.agent_format else "",
+            f" (从 step {global_step} 恢复)" if global_step > 0 else "",
         )
-
-        # 训练循环
-        global_step = 0
         model.train()
 
         for epoch in range(self.config.num_epochs):

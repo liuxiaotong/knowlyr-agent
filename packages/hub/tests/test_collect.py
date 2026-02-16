@@ -3,7 +3,7 @@
 from knowlyrcore.env import AgentEnv
 from knowlyrcore.timestep import TimeStep
 
-from trajectoryhub.collect import collect
+from trajectoryhub.collect import collect, collect_parallel
 
 
 # ── MockEnv ─────────────────────────────────────────────────────────
@@ -229,3 +229,133 @@ class TestCollectWithReward:
             rewards = [s["reward"] for s in traj["steps"]]
             assert abs(rewards[0] - 1.0) < 1e-6
             assert abs(rewards[1] - 2.0) < 1e-6
+
+
+# ── collect_parallel 测试 ─────────────────────────────────────────
+
+
+class TestCollectParallel:
+    """collect_parallel() 并行收集测试."""
+
+    def test_basic_parallel(self):
+        """基本并行收集: 多 worker 收集总数正确."""
+        from knowlyrcore.registry import register, _clear_registry
+
+        _clear_registry()
+        register("test/mock-parallel", MockEnv, domain="test")
+
+        def agent_factory():
+            return StatefulAgent(submit_after=2)
+
+        trajs = collect_parallel(
+            "test/mock-parallel",
+            agent_factory=agent_factory,
+            n_episodes=6,
+            max_steps=10,
+            n_workers=2,
+        )
+
+        # 6 episodes 应收集 6 条轨迹
+        assert len(trajs) == 6
+        for traj in trajs:
+            assert len(traj["steps"]) == 2
+            assert traj["outcome"]["success"] is True
+
+        _clear_registry()
+
+    def test_parallel_single_worker(self):
+        """单 worker 退化为串行."""
+        from knowlyrcore.registry import register, _clear_registry
+
+        _clear_registry()
+        register("test/mock-single", MockEnv, domain="test")
+
+        def agent_factory():
+            return StatefulAgent(submit_after=1)
+
+        trajs = collect_parallel(
+            "test/mock-single",
+            agent_factory=agent_factory,
+            n_episodes=3,
+            max_steps=10,
+            n_workers=1,
+        )
+
+        assert len(trajs) == 3
+        _clear_registry()
+
+    def test_parallel_more_workers_than_episodes(self):
+        """worker 数 > episode 数时不崩溃."""
+        from knowlyrcore.registry import register, _clear_registry
+
+        _clear_registry()
+        register("test/mock-excess", MockEnv, domain="test")
+
+        def agent_factory():
+            return StatefulAgent(submit_after=1)
+
+        trajs = collect_parallel(
+            "test/mock-excess",
+            agent_factory=agent_factory,
+            n_episodes=2,
+            max_steps=10,
+            n_workers=5,
+        )
+
+        assert len(trajs) == 2
+        _clear_registry()
+
+    def test_parallel_with_reward_fn(self):
+        """并行收集支持 reward_fn."""
+        from knowlyrcore.registry import register, _clear_registry
+
+        _clear_registry()
+        register("test/mock-reward", MockEnv, domain="test")
+
+        def agent_factory():
+            return StatefulAgent(submit_after=2)
+
+        def constant_reward(steps, action):
+            return 0.5
+
+        trajs = collect_parallel(
+            "test/mock-reward",
+            agent_factory=agent_factory,
+            n_episodes=4,
+            max_steps=10,
+            n_workers=2,
+            reward_fn=constant_reward,
+        )
+
+        assert len(trajs) == 4
+        for traj in trajs:
+            for step in traj["steps"]:
+                assert step["reward"] == 0.5
+
+        _clear_registry()
+
+    def test_parallel_agent_name_has_worker_id(self):
+        """每个 worker 的 agent_name 应包含 worker ID."""
+        from knowlyrcore.registry import register, _clear_registry
+
+        _clear_registry()
+        register("test/mock-names", MockEnv, domain="test")
+
+        def agent_factory():
+            return StatefulAgent(submit_after=1)
+
+        trajs = collect_parallel(
+            "test/mock-names",
+            agent_factory=agent_factory,
+            n_episodes=4,
+            max_steps=10,
+            n_workers=2,
+            agent_name="myagent",
+        )
+
+        assert len(trajs) == 4
+        # agent 名应包含 worker 编号
+        agents = set(traj["agent"] for traj in trajs)
+        assert all("myagent-w" in a for a in agents)
+
+        _clear_registry()

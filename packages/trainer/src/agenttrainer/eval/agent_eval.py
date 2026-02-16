@@ -36,10 +36,129 @@ Usage::
 from __future__ import annotations
 
 import logging
+import math
 import statistics
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
+
+
+def confidence_interval(
+    data: list[float],
+    confidence: float = 0.95,
+) -> tuple[float, float]:
+    """计算均值的置信区间 (使用 t 分布近似).
+
+    当 n ≥ 30 时 t 分布近似正态分布，使用 z 值；
+    n < 30 时使用查表的 t 值近似。
+
+    Args:
+        data: 数据列表
+        confidence: 置信水平 (默认 0.95)
+
+    Returns:
+        (lower, upper) 置信区间
+    """
+    n = len(data)
+    if n < 2:
+        mean = data[0] if data else 0.0
+        return (mean, mean)
+
+    mean = statistics.mean(data)
+    std_err = statistics.stdev(data) / math.sqrt(n)
+
+    # t 值近似 (95% CI)
+    # n >= 30: z ≈ 1.96; n < 30: 使用简化 t 值表
+    if confidence == 0.95:
+        if n >= 30:
+            t_val = 1.96
+        elif n >= 15:
+            t_val = 2.13
+        elif n >= 10:
+            t_val = 2.26
+        elif n >= 5:
+            t_val = 2.78
+        else:
+            t_val = 4.30  # n=2 的 t 值
+    elif confidence == 0.99:
+        t_val = 2.576 if n >= 30 else 3.50
+    else:
+        # 默认用 z=1.96
+        t_val = 1.96
+
+    margin = t_val * std_err
+    return (mean - margin, mean + margin)
+
+
+def significance_test(
+    data_a: list[float],
+    data_b: list[float],
+) -> dict[str, Any]:
+    """简单的双样本 t 检验 (Welch's t-test).
+
+    不依赖 scipy，使用手动计算。
+
+    Args:
+        data_a: 样本 A 的数据
+        data_b: 样本 B 的数据
+
+    Returns:
+        {"t_statistic": float, "p_approx": str, "significant": bool, "effect_size": float}
+    """
+    n_a, n_b = len(data_a), len(data_b)
+    if n_a < 2 or n_b < 2:
+        return {
+            "t_statistic": 0.0,
+            "p_approx": "insufficient_data",
+            "significant": False,
+            "effect_size": 0.0,
+        }
+
+    mean_a = statistics.mean(data_a)
+    mean_b = statistics.mean(data_b)
+    var_a = statistics.variance(data_a)
+    var_b = statistics.variance(data_b)
+
+    # Welch's t-test
+    se = math.sqrt(var_a / n_a + var_b / n_b)
+    if se < 1e-10:
+        return {
+            "t_statistic": 0.0,
+            "p_approx": "identical",
+            "significant": False,
+            "effect_size": 0.0,
+        }
+
+    t_stat = (mean_a - mean_b) / se
+
+    # Cohen's d (effect size)
+    pooled_std = math.sqrt((var_a + var_b) / 2)
+    effect_size = abs(mean_a - mean_b) / pooled_std if pooled_std > 1e-10 else 0.0
+
+    # p 值近似 (不依赖 scipy)
+    abs_t = abs(t_stat)
+    if abs_t > 3.5:
+        p_approx = "p<0.001"
+        significant = True
+    elif abs_t > 2.5:
+        p_approx = "p<0.01"
+        significant = True
+    elif abs_t > 2.0:
+        p_approx = "p<0.05"
+        significant = True
+    elif abs_t > 1.5:
+        p_approx = "p<0.15"
+        significant = False
+    else:
+        p_approx = "p>0.15"
+        significant = False
+
+    return {
+        "t_statistic": round(t_stat, 4),
+        "p_approx": p_approx,
+        "significant": significant,
+        "effect_size": round(effect_size, 4),
+    }
 
 
 def evaluate_agent(
@@ -214,7 +333,7 @@ def compare_agents(
             tasks=tasks,
         )
 
-    # 添加对比摘要
+    # 添加对比摘要 + 显著性检验
     if len(results) > 1:
         best_agent = max(results, key=lambda k: results[k]["success_rate"])
         logger.info(
@@ -223,6 +342,27 @@ def compare_agents(
             results[best_agent]["success_rate"] * 100,
             results[best_agent]["avg_reward"],
         )
+
+        # 两两显著性检验 (reward)
+        names = list(results.keys())
+        comparisons: dict[str, dict[str, Any]] = {}
+        for i in range(len(names)):
+            for j in range(i + 1, len(names)):
+                a, b = names[i], names[j]
+                rewards_a = [e["total_reward"] for e in results[a]["episodes"]]
+                rewards_b = [e["total_reward"] for e in results[b]["episodes"]]
+                test_result = significance_test(rewards_a, rewards_b)
+                key = f"{a}_vs_{b}"
+                comparisons[key] = test_result
+                logger.info(
+                    "  %s vs %s: t=%.3f, %s, effect_size=%.3f",
+                    a, b,
+                    test_result["t_statistic"],
+                    test_result["p_approx"],
+                    test_result["effect_size"],
+                )
+
+        results["_comparisons"] = comparisons  # type: ignore[assignment]
 
     return results
 
@@ -262,12 +402,28 @@ def _compute_stats(
         else:
             distribution[">=0.75"] += 1
 
+    # 置信区间
+    reward_ci = confidence_interval(rewards)
+    steps_ci = confidence_interval([float(s) for s in step_counts])
+
+    # 成功率 CI (Wilson score interval 简化版)
+    n = len(episodes)
+    p = successes / n
+    z = 1.96
+    denom = 1 + z * z / n
+    center = (p + z * z / (2 * n)) / denom
+    spread = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
+    success_ci = (max(0.0, center - spread), min(1.0, center + spread))
+
     return {
         "success_rate": successes / max(len(episodes), 1),
+        "success_rate_ci": success_ci,
         "avg_reward": statistics.mean(rewards),
         "std_reward": statistics.stdev(rewards) if len(rewards) > 1 else 0.0,
+        "reward_ci": reward_ci,
         "avg_steps": statistics.mean(step_counts),
         "std_steps": statistics.stdev(step_counts) if len(step_counts) > 1 else 0.0,
+        "steps_ci": steps_ci,
         "min_reward": min(rewards),
         "max_reward": max(rewards),
         "reward_distribution": distribution,

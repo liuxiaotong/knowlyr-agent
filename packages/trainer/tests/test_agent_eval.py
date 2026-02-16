@@ -1,8 +1,14 @@
-"""测试 agent 级别评估 — evaluate_agent + compare_agents."""
+"""测试 agent 级别评估 — evaluate_agent + compare_agents + 统计检验."""
 
 import pytest
 
-from agenttrainer.eval.agent_eval import evaluate_agent, compare_agents, _compute_stats
+from agenttrainer.eval.agent_eval import (
+    evaluate_agent,
+    compare_agents,
+    _compute_stats,
+    confidence_interval,
+    significance_test,
+)
 
 
 # ── Mock 环境和 agent ──────────────────────────────────────────
@@ -262,3 +268,139 @@ class TestCompareAgents:
 
         assert "only_one" in results
         assert len(results) == 1
+
+    def test_compare_includes_significance(self):
+        """两个 agent 对比时包含显著性检验结果."""
+        fast_agent = _make_simple_agent(respond_at=1)
+        slow_agent = _make_simple_agent(respond_at=3)
+        env = _MockEnv(success_at_step=5)
+
+        results = compare_agents(
+            agents={"fast": fast_agent, "slow": slow_agent},
+            env=env,
+            n_episodes=5,
+            max_steps=10,
+        )
+
+        assert "_comparisons" in results
+        assert "fast_vs_slow" in results["_comparisons"]
+        comp = results["_comparisons"]["fast_vs_slow"]
+        assert "t_statistic" in comp
+        assert "p_approx" in comp
+        assert "significant" in comp
+        assert "effect_size" in comp
+
+
+# ── confidence_interval 测试 ─────────────────────────────────────
+
+
+class TestConfidenceInterval:
+    """测试置信区间计算."""
+
+    def test_single_value(self):
+        """单个值的 CI 是 (value, value)."""
+        lo, hi = confidence_interval([5.0])
+        assert lo == 5.0
+        assert hi == 5.0
+
+    def test_empty(self):
+        """空列表返回 (0, 0)."""
+        lo, hi = confidence_interval([])
+        assert lo == 0.0
+        assert hi == 0.0
+
+    def test_symmetric(self):
+        """均匀数据的 CI 应围绕均值对称."""
+        data = [1.0, 2.0, 3.0, 4.0, 5.0]
+        lo, hi = confidence_interval(data)
+        mean = 3.0
+        assert lo < mean
+        assert hi > mean
+        # 近似对称
+        assert abs((mean - lo) - (hi - mean)) < 0.01
+
+    def test_large_sample(self):
+        """大样本的 CI 应较窄."""
+        data = [1.0] * 50 + [2.0] * 50
+        lo, hi = confidence_interval(data)
+        # 100 个样本，CI 应很窄
+        assert (hi - lo) < 0.5
+
+    def test_ci_contains_mean(self):
+        """CI 应包含均值."""
+        data = [10.0, 12.0, 11.0, 13.0, 9.0, 14.0, 10.5, 11.5]
+        lo, hi = confidence_interval(data)
+        import statistics
+        mean = statistics.mean(data)
+        assert lo <= mean <= hi
+
+
+# ── significance_test 测试 ───────────────────────────────────────
+
+
+class TestSignificanceTest:
+    """测试显著性检验."""
+
+    def test_identical_samples(self):
+        """相同数据应不显著."""
+        data = [1.0, 2.0, 3.0, 4.0, 5.0]
+        result = significance_test(data, data)
+        assert result["significant"] is False
+
+    def test_very_different_samples(self):
+        """差异极大的数据应显著."""
+        a = [1.0, 1.1, 1.2, 0.9, 1.0, 1.1, 0.8, 1.2]
+        b = [10.0, 10.1, 10.2, 9.9, 10.0, 10.1, 9.8, 10.2]
+        result = significance_test(a, b)
+        assert result["significant"] is True
+        assert result["effect_size"] > 1.0  # 非常大的 effect size
+
+    def test_insufficient_data(self):
+        """数据不足时返回 insufficient_data."""
+        result = significance_test([1.0], [2.0])
+        assert result["p_approx"] == "insufficient_data"
+        assert result["significant"] is False
+
+    def test_effect_size_direction(self):
+        """t_statistic 正负反映方向."""
+        a = [5.0, 5.1, 5.2, 4.9, 5.0]
+        b = [3.0, 3.1, 3.2, 2.9, 3.0]
+        result = significance_test(a, b)
+        assert result["t_statistic"] > 0  # a > b
+
+        result2 = significance_test(b, a)
+        assert result2["t_statistic"] < 0  # b < a
+
+
+# ── _compute_stats CI 测试 ───────────────────────────────────────
+
+
+class TestComputeStatsCI:
+    """测试 _compute_stats 返回的 CI 字段."""
+
+    def test_has_ci_fields(self):
+        """结果应包含 CI 字段."""
+        episodes = [
+            {"episode": i, "success": True, "total_reward": 0.5 + i * 0.1,
+             "n_steps": 3, "outcome": {}}
+            for i in range(5)
+        ]
+        result = _compute_stats(episodes, 5)
+        assert "reward_ci" in result
+        assert "steps_ci" in result
+        assert "success_rate_ci" in result
+
+    def test_ci_bounds(self):
+        """CI lower ≤ mean ≤ upper."""
+        episodes = [
+            {"episode": i, "success": i % 2 == 0, "total_reward": 0.3 + i * 0.1,
+             "n_steps": 2 + i, "outcome": {}}
+            for i in range(10)
+        ]
+        result = _compute_stats(episodes, 10)
+
+        lo, hi = result["reward_ci"]
+        assert lo <= result["avg_reward"] <= hi
+
+        lo, hi = result["success_rate_ci"]
+        assert lo <= result["success_rate"] <= hi

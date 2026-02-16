@@ -14,7 +14,7 @@ from agenttrainer.config import TrainConfig
 from agenttrainer.utils.seed import set_seed
 from agenttrainer.utils.logging import init_logging, log_metrics, finish_logging
 from agenttrainer.utils.distributed import is_main_process
-from agenttrainer.models.checkpoint import save_checkpoint, save_final
+from agenttrainer.models.checkpoint import save_checkpoint, save_final, load_training_state
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +108,38 @@ class BaseTrainer(ABC):
         """保存最终模型（仅主进程）."""
         if is_main_process():
             save_final(model, tokenizer, self.config.output_dir)
+
+    def _maybe_resume(
+        self,
+        optimizer: AdamW,
+        scheduler: Any,
+    ) -> int:
+        """从 checkpoint 恢复训练状态.
+
+        Args:
+            optimizer: 已构建的优化器
+            scheduler: 已构建的调度器
+
+        Returns:
+            恢复的 global_step (未恢复则返回 0)
+        """
+        ckpt_path = self.config.resume_from_checkpoint
+        if not ckpt_path:
+            return 0
+
+        state = load_training_state(ckpt_path)
+        if state is None:
+            logger.warning("Checkpoint %s 不包含 training_state.pt，从头开始", ckpt_path)
+            return 0
+
+        if "optimizer" in state and state["optimizer"] is not None:
+            optimizer.load_state_dict(state["optimizer"])
+        if "scheduler" in state and state["scheduler"] is not None and scheduler is not None:
+            scheduler.load_state_dict(state["scheduler"])
+
+        global_step = state.get("global_step", 0)
+        logger.info("从 checkpoint 恢复: step=%d, path=%s", global_step, ckpt_path)
+        return global_step
 
     def _resolve_device(self) -> torch.device:
         """确定训练设备."""

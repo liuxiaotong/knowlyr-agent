@@ -245,3 +245,193 @@ class TestDatasetExporter:
                 mock_api.upload_folder.assert_called_once()
         finally:
             exp_mod._HAS_HF = original
+
+
+# ── validate_dataset 测试 ─────────────────────────────────────────
+
+
+class TestValidateDataset:
+    """validate_dataset() 质量验证测试."""
+
+    def _create_trajectories(self, tmp_dir: Path, trajectories: list) -> Path:
+        """写入轨迹 JSONL."""
+        traj_path = tmp_dir / "trajectories.jsonl"
+        with open(traj_path, "w", encoding="utf-8") as f:
+            for traj in trajectories:
+                f.write(json.dumps(traj, ensure_ascii=False) + "\n")
+        return traj_path
+
+    def _create_preferences(self, tmp_dir: Path, preferences: list) -> Path:
+        """写入偏好对 JSONL."""
+        pref_path = tmp_dir / "preferences.jsonl"
+        with open(pref_path, "w", encoding="utf-8") as f:
+            for pref in preferences:
+                f.write(json.dumps(pref, ensure_ascii=False) + "\n")
+        return pref_path
+
+    def test_valid_sft_dataset(self):
+        """合格 SFT 数据集应通过验证."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            traj_path = self._create_trajectories(tmp_path, [
+                {
+                    "task_id": "t-001",
+                    "steps": [
+                        {"action": "read /a.py", "observation": "content"},
+                        {"action": "edit /a.py", "observation": "done"},
+                    ],
+                    "success": True,
+                    "reward": 0.85,
+                },
+                {
+                    "task_id": "t-002",
+                    "steps": [{"action": "bash ls", "observation": "files"}],
+                    "success": False,
+                    "reward": 0.3,
+                },
+            ])
+
+            exporter = DatasetExporter(trajectories_dir=str(traj_path))
+            result = exporter.validate_dataset(format="sft")
+
+            assert result["total_records"] == 2
+            assert result["is_valid"] is True
+            assert result["issues"] == []
+            assert result["reward_stats"]["min"] == 0.3
+            assert result["reward_stats"]["max"] == 0.85
+
+    def test_empty_dataset(self):
+        """空数据集应返回 is_valid=False."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            traj_path = self._create_trajectories(tmp_path, [])
+
+            exporter = DatasetExporter(trajectories_dir=str(traj_path))
+            result = exporter.validate_dataset()
+
+            assert result["total_records"] == 0
+            assert result["is_valid"] is False
+            assert len(result["issues"]) > 0
+
+    def test_missing_fields_detected(self):
+        """缺失字段应报告问题."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            # 创建大量缺失 task_id 的记录 (>5% 触发告警)
+            trajs = [
+                {"steps": [{"action": "a", "observation": "b"}], "success": True, "reward": 0.5}
+                for _ in range(10)
+            ]
+            traj_path = self._create_trajectories(tmp_path, trajs)
+
+            exporter = DatasetExporter(trajectories_dir=str(traj_path))
+            result = exporter.validate_dataset()
+
+            assert result["missing_rate"]["task_id"] == 1.0
+            assert any("task_id" in issue for issue in result["issues"])
+            assert result["is_valid"] is False
+
+    def test_all_zero_rewards(self):
+        """全零 reward 应报告问题."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            trajs = [
+                {
+                    "task_id": f"t-{i}",
+                    "steps": [{"action": "a", "observation": "b"}],
+                    "success": True,
+                    "reward": 0.0,
+                }
+                for i in range(5)
+            ]
+            traj_path = self._create_trajectories(tmp_path, trajs)
+
+            exporter = DatasetExporter(trajectories_dir=str(traj_path))
+            result = exporter.validate_dataset()
+
+            assert result["reward_stats"]["all_zero"] is True
+            assert any("reward" in issue and "0.0" in issue for issue in result["issues"])
+
+    def test_empty_steps_detected(self):
+        """无步骤的记录应报告问题."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            trajs = [
+                {"task_id": "t-1", "steps": [], "success": True, "reward": 0.5},
+                {"task_id": "t-2", "steps": [{"action": "a", "observation": "b"}],
+                 "success": True, "reward": 0.7},
+            ]
+            traj_path = self._create_trajectories(tmp_path, trajs)
+
+            exporter = DatasetExporter(trajectories_dir=str(traj_path))
+            result = exporter.validate_dataset()
+
+            assert any("无步骤" in issue for issue in result["issues"])
+
+    def test_validate_dpo_format(self):
+        """DPO 格式验证应检查 chosen/rejected."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            traj_path = self._create_trajectories(tmp_path, [])
+            pref_path = self._create_preferences(tmp_path, [
+                {
+                    "task_id": "t-001",
+                    "chosen": {"steps": [{"action": "a"}], "reward": 0.9},
+                    "rejected": {"steps": [{"action": "b"}], "reward": 0.3},
+                    "reward_margin": 0.6,
+                },
+            ])
+
+            exporter = DatasetExporter(
+                trajectories_dir=str(traj_path),
+                preferences_dir=str(pref_path),
+            )
+            result = exporter.validate_dataset(format="dpo")
+
+            assert result["total_records"] == 1
+            assert result["is_valid"] is True
+
+    def test_validate_dpo_negative_margin(self):
+        """DPO 负 reward_margin 应报告问题."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            traj_path = self._create_trajectories(tmp_path, [])
+            pref_path = self._create_preferences(tmp_path, [
+                {
+                    "task_id": "t-001",
+                    "chosen": {"steps": [{"action": "a"}], "reward": 0.3},
+                    "rejected": {"steps": [{"action": "b"}], "reward": 0.9},
+                    "reward_margin": -0.6,
+                },
+            ])
+
+            exporter = DatasetExporter(
+                trajectories_dir=str(traj_path),
+                preferences_dir=str(pref_path),
+            )
+            result = exporter.validate_dataset(format="dpo")
+
+            assert any("reward_margin < 0" in issue for issue in result["issues"])
+
+    def test_length_stats_computed(self):
+        """应计算 response 长度统计."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            trajs = [
+                {
+                    "task_id": f"t-{i}",
+                    "steps": [{"action": "a" * 100, "observation": "b" * 100}],
+                    "success": True,
+                    "reward": 0.5,
+                }
+                for i in range(3)
+            ]
+            traj_path = self._create_trajectories(tmp_path, trajs)
+
+            exporter = DatasetExporter(trajectories_dir=str(traj_path))
+            result = exporter.validate_dataset()
+
+            assert "min" in result["length_stats"]
+            assert "max" in result["length_stats"]
+            assert "mean" in result["length_stats"]
+            assert result["length_stats"]["min"] > 0

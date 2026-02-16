@@ -124,6 +124,7 @@ def online_training_loop(
     output_dir: str = "./output/online_loop",
     domain: str = "conversation",
     mock: bool = False,
+    patience: int = 0,
 ) -> list[dict[str, Any]]:
     """在线训练循环主函数.
 
@@ -133,6 +134,7 @@ def online_training_loop(
     3. 导出为 SFT 训练数据
     4. SFTTrainer 微调（或 mock 训练）
     5. 评估并记录指标
+    6. 检查早停条件
 
     Args:
         model_path: HuggingFace 模型名或本地 checkpoint 路径
@@ -143,6 +145,8 @@ def online_training_loop(
         output_dir: 输出目录
         domain: 领域 (conversation/engineering/advisory)
         mock: 使用 mock 组件（无需 GPU）
+        patience: 早停耐心值。连续 patience 轮 avg_reward 未改善时停止。
+                  0 = 不使用早停。
 
     Returns:
         每次迭代的统计结果列表
@@ -151,6 +155,8 @@ def online_training_loop(
     out.mkdir(parents=True, exist_ok=True)
 
     iteration_results: list[dict[str, Any]] = []
+    best_reward = float("-inf")
+    patience_counter = 0
 
     for iteration in range(n_iterations):
         iter_dir = out / f"iter-{iteration}"
@@ -228,6 +234,25 @@ def online_training_loop(
             stats["avg_reward"],
             stats["avg_steps"],
         )
+
+        # ── 早停检查 ──
+        if patience > 0:
+            if stats["avg_reward"] > best_reward:
+                best_reward = stats["avg_reward"]
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                logger.info(
+                    "早停计数: %d/%d (best_reward=%.3f)",
+                    patience_counter, patience, best_reward,
+                )
+
+            if patience_counter >= patience:
+                logger.info(
+                    "早停触发: 连续 %d 轮 avg_reward 未改善 (best=%.3f)",
+                    patience, best_reward,
+                )
+                break
 
         # ── Step 5: 导出训练数据 ──
         traj_file = iter_dir / "trajectories.jsonl"
@@ -339,6 +364,10 @@ def main() -> None:
         "--mock", action="store_true",
         help="使用 mock 组件（无需 GPU，快速体验）",
     )
+    parser.add_argument(
+        "--patience", type=int, default=0,
+        help="早停耐心值: 连续 N 轮无改善则停止 (0=不使用早停)",
+    )
 
     args = parser.parse_args()
 
@@ -356,6 +385,7 @@ def main() -> None:
         output_dir=args.output_dir,
         domain=args.domain,
         mock=args.mock,
+        patience=args.patience,
     )
 
 

@@ -638,6 +638,217 @@ If you use this dataset, please cite:
                 records.append(json.loads(line))
         return records
 
+    def validate_dataset(
+        self,
+        format: str = "sft",
+        max_length: int = 2048,
+    ) -> Dict[str, Any]:
+        """验证导出数据集的质量.
+
+        检查项目:
+        - 缺失率: 必填字段的缺失比例
+        - 长度分布: response/chosen/rejected 的 token 估算长度
+        - reward 异常: NaN/Inf/全零检测
+        - 空内容: 空 response 或空步骤的比例
+
+        Args:
+            format: 数据格式 ("sft", "dpo", "grpo")
+            max_length: 序列长度阈值，超过此值会发出警告
+
+        Returns:
+            验证结果字典::
+
+                {
+                    "total_records": 100,
+                    "issues": [...],          # 问题列表
+                    "missing_rate": {...},     # 各字段缺失率
+                    "length_stats": {...},     # 长度统计
+                    "reward_stats": {...},     # reward 统计
+                    "is_valid": True/False,    # 总体是否通过
+                }
+        """
+        if format == "dpo":
+            return self._validate_dpo(max_length)
+        return self._validate_sft(max_length)
+
+    def _validate_sft(self, max_length: int) -> Dict[str, Any]:
+        """验证 SFT 数据集."""
+        trajectories = self._load_trajectories()
+        issues: List[str] = []
+
+        if not trajectories:
+            return {
+                "total_records": 0,
+                "issues": ["数据集为空"],
+                "missing_rate": {},
+                "length_stats": {},
+                "reward_stats": {},
+                "is_valid": False,
+            }
+
+        # 统计
+        total = len(trajectories)
+        missing: Dict[str, int] = {
+            "task_id": 0,
+            "steps": 0,
+            "success": 0,
+            "reward": 0,
+        }
+        rewards: List[float] = []
+        step_counts: List[int] = []
+        response_lengths: List[int] = []  # 估算 char 长度
+        empty_responses = 0
+
+        for traj in trajectories:
+            if not traj.get("task_id"):
+                missing["task_id"] += 1
+            steps = traj.get("steps", [])
+            if not steps:
+                missing["steps"] += 1
+                empty_responses += 1
+            else:
+                step_counts.append(len(steps))
+                # 估算 response 长度 (字符数 ≈ token 数 * 1.5 for 中文)
+                text_len = sum(
+                    len(str(s.get("action", ""))) + len(str(s.get("observation", "")))
+                    for s in steps
+                )
+                response_lengths.append(text_len)
+
+            if "success" not in traj and "success" not in traj.get("outcome", {}):
+                missing["success"] += 1
+
+            reward = traj.get("reward")
+            if reward is None:
+                missing["reward"] += 1
+            else:
+                try:
+                    r = float(reward)
+                    if r != r:  # NaN check
+                        issues.append(f"task={traj.get('task_id', '?')}: reward 为 NaN")
+                    elif abs(r) == float("inf"):
+                        issues.append(f"task={traj.get('task_id', '?')}: reward 为 Inf")
+                    else:
+                        rewards.append(r)
+                except (ValueError, TypeError):
+                    issues.append(f"task={traj.get('task_id', '?')}: reward 无法解析")
+
+        # 缺失率
+        missing_rate = {k: v / total for k, v in missing.items()}
+        for field, rate in missing_rate.items():
+            if rate > 0.05:
+                issues.append(f"字段 '{field}' 缺失率 {rate:.1%} (超过 5%)")
+
+        # 长度统计
+        length_stats: Dict[str, Any] = {}
+        if response_lengths:
+            over_limit = sum(1 for l in response_lengths if l > max_length * 4)
+            length_stats = {
+                "min": min(response_lengths),
+                "max": max(response_lengths),
+                "mean": sum(response_lengths) / len(response_lengths),
+                "over_max_length": over_limit,
+                "over_max_length_rate": over_limit / len(response_lengths),
+            }
+            if over_limit > 0:
+                issues.append(
+                    f"{over_limit} 条记录 ({over_limit/len(response_lengths):.1%}) "
+                    f"超过 max_length={max_length} 的估算阈值"
+                )
+
+        # Reward 统计
+        reward_stats: Dict[str, Any] = {}
+        if rewards:
+            all_zero = all(r == 0.0 for r in rewards)
+            reward_stats = {
+                "min": min(rewards),
+                "max": max(rewards),
+                "mean": sum(rewards) / len(rewards),
+                "all_zero": all_zero,
+            }
+            if all_zero:
+                issues.append("所有 reward 均为 0.0，检查 reward 计算是否正常")
+
+        # 空内容
+        if empty_responses > 0:
+            rate = empty_responses / total
+            issues.append(f"{empty_responses} 条记录 ({rate:.1%}) 无步骤数据")
+
+        return {
+            "total_records": total,
+            "issues": issues,
+            "missing_rate": missing_rate,
+            "length_stats": length_stats,
+            "reward_stats": reward_stats,
+            "is_valid": len(issues) == 0,
+        }
+
+    def _validate_dpo(self, max_length: int) -> Dict[str, Any]:
+        """验证 DPO 数据集."""
+        preferences = self._load_preferences()
+        issues: List[str] = []
+
+        if not preferences:
+            return {
+                "total_records": 0,
+                "issues": ["偏好对数据集为空"],
+                "missing_rate": {},
+                "length_stats": {},
+                "reward_stats": {},
+                "is_valid": False,
+            }
+
+        total = len(preferences)
+        missing_chosen = 0
+        missing_rejected = 0
+        reward_margins: List[float] = []
+
+        for pref in preferences:
+            if not pref.get("chosen"):
+                missing_chosen += 1
+            if not pref.get("rejected"):
+                missing_rejected += 1
+
+            margin = pref.get("reward_margin")
+            if margin is not None:
+                try:
+                    m = float(margin)
+                    if m < 0:
+                        issues.append(
+                            f"task={pref.get('task_id', '?')}: reward_margin < 0 ({m:.3f})"
+                        )
+                    reward_margins.append(m)
+                except (ValueError, TypeError):
+                    pass
+
+        missing_rate = {
+            "chosen": missing_chosen / total,
+            "rejected": missing_rejected / total,
+        }
+
+        reward_stats: Dict[str, Any] = {}
+        if reward_margins:
+            reward_stats = {
+                "min_margin": min(reward_margins),
+                "max_margin": max(reward_margins),
+                "mean_margin": sum(reward_margins) / len(reward_margins),
+            }
+            if all(m == 0.0 for m in reward_margins):
+                issues.append("所有 reward_margin 均为 0.0")
+
+        for field, rate in missing_rate.items():
+            if rate > 0.0:
+                issues.append(f"字段 '{field}' 缺失率 {rate:.1%}")
+
+        return {
+            "total_records": total,
+            "issues": issues,
+            "missing_rate": missing_rate,
+            "length_stats": {},
+            "reward_stats": reward_stats,
+            "is_valid": len(issues) == 0,
+        }
+
     def _steps_to_text(self, steps: List[Dict[str, Any]]) -> str:
         """将步骤列表转为文本格式."""
         parts = []
