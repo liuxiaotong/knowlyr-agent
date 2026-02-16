@@ -1,180 +1,144 @@
 <div align="center">
 
-<h1>🤖 knowlyr-agent</h1>
+<h1>knowlyr-agent</h1>
 
-<p><strong>Agent 轨迹数据工程 Monorepo — 执行、录制、评分、编排一站式 Pipeline</strong><br/>
-<em>Agent trajectory data engineering monorepo — sandbox execution, trajectory recording, process reward scoring & pipeline orchestration</em></p>
+<p><strong>A Gymnasium-Style Reinforcement Learning Framework for LLM Agent Training</strong><br/>
+<em>面向大语言模型 Agent 的 Gymnasium 风格强化学习框架</em></p>
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 <br/>
 [![CI](https://github.com/liuxiaotong/knowlyr-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/liuxiaotong/knowlyr-agent/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-520_passed-brightgreen.svg)](#开发)
-[![MCP](https://img.shields.io/badge/MCP-19_Tools-purple.svg)](#mcp-server)
-[![Packages](https://img.shields.io/badge/packages-6-orange.svg)](#子包一览)
+[![Tests](https://img.shields.io/badge/tests-699_passed-brightgreen.svg)](#development)
+[![Packages](https://img.shields.io/badge/packages-6-orange.svg)](#components)
+[![Environments](https://img.shields.io/badge/environments-5_registered-purple.svg)](#environments)
 
-[子包一览](#子包一览) · [架构](#架构) · [安装](#安装) · [快速开始](#快速开始) · [Gym-Style API](#gym-style-api) · [多领域支持](#多领域支持) · [MCP Server](#mcp-server) · [开发](#开发) · [生态](#data-pipeline-生态)
+[Architecture](#architecture) · [MDP Formulation](#mdp-formulation) · [Components](#components) · [Environments](#environments) · [Reward Model](#three-layer-process-reward-model) · [Training](#policy-optimization) · [Quick Start](#quick-start) · [References](#references)
 
 </div>
 
 ---
 
-> 🎯 **6 包 Monorepo** core · sandbox · recorder · reward · hub · trainer，独立安装、独立 MCP
-> 🏋️ **Gym-Style API** AgentEnv / TimeStep / Wrapper / Registry，兼容 Gymnasium 生态
-> 🌐 **多领域支持** Coding · Browser · 自定义 DomainProfile，声明式配置切换领域
-> 🧠 **Agent 训练** SFT / DPO / GRPO + 观察遮蔽、步骤加权、课程学习
+**knowlyr-agent** formalizes LLM tool-use agent tasks as Markov Decision Processes (MDPs) and provides a modular framework for environment interaction, process reward computation, and policy optimization. The system implements a Gymnasium-compatible environment protocol with composable wrappers, a three-layer Process Reward Model (rule-based + LLM-as-Judge + human calibration), and a complete training pipeline supporting SFT, DPO, and GRPO. Through a domain-agnostic abstraction layer (`DomainProfile`), it generalizes across coding, browser, conversation, and custom agent domains.
 
-## 子包一览
+> **knowlyr-agent** 将 LLM 工具调用 Agent 任务形式化为马尔可夫决策过程（MDP），提供环境交互、过程奖励计算和策略优化的模块化框架。系统实现 Gymnasium 兼容的环境协议与可组合 Wrapper，三层过程奖励模型（规则 + LLM-as-Judge + 人工校准），以及 SFT / DPO / GRPO 完整训练管线。通过领域无关的抽象层 `DomainProfile`，可泛化至 coding、browser、conversation 等任意 Agent 领域。
 
-| 包名 | 功能 | CLI | MCP | 测试 |
-|------|------|-----|-----|------|
-| [**knowlyr-core**](packages/core/) | 共享模型 + Gym 协议 (AgentEnv, TimeStep, Wrapper, Registry) | — | — | 96 |
-| [**knowlyr-sandbox**](packages/sandbox/) | Docker 沙箱执行环境 + SandboxEnv 适配器 | `knowlyr-sandbox` | 5 Tools | 65 |
-| [**knowlyr-recorder**](packages/recorder/) | Agent 轨迹录制、格式转换、适配器注册表 | `knowlyr-recorder` | 4 Tools | 62 |
-| [**knowlyr-reward**](packages/reward/) | 过程级 Rubric Reward (规则层 + LLM-as-Judge)，多领域 ToolClassifier，对话领域评分 | `knowlyr-reward` | 5 Tools | 131 |
-| [**knowlyr-hub**](packages/hub/) | Pipeline 编排、轨迹收集 (collect)、数据集导出 (SFT/DPO/GRPO) | `knowlyr-hub` | 5 Tools | 73 |
-| [**knowlyr-trainer**](packages/trainer/) | Agent 轨迹训练 (SFT/DPO/GRPO)，观察遮蔽、步骤加权、课程学习 | `knowlyr-trainer` | — | 76 |
+## Architecture
 
-每个包**独立安装、独立使用**，sandbox / recorder / reward / trainer 无交叉依赖。Hub 通过可选依赖串联数据管线，Trainer 消费 Hub 导出的 JSONL。
-
-## 架构
+以 RL 训练循环为核心：策略（LLM）在环境中交互产生轨迹，经过程奖励模型评分后，构造训练数据集用于策略优化，优化后的策略再次进入环境采样。
 
 ```mermaid
-graph TD
-    C["knowlyr-core<br/>AgentEnv · TimeStep · Wrapper · Registry"] -.->|协议+模型| S
-    C -.-> R
-    C -.-> W
-    C -.-> H
-    T["Task<br/>JSONL / SWE-bench"] --> S["knowlyr-sandbox<br/>SandboxEnv · Docker 隔离执行"]
-    S -->|raw log| R["knowlyr-recorder<br/>适配器 → 标准化轨迹"]
-    R -->|Trajectory| W["knowlyr-reward<br/>ToolClassifier → 过程级 Reward"]
-    W -->|scored trajectory| H["knowlyr-hub<br/>collect() · Pipeline 编排"]
-    H -->|SFT/DPO/GRPO JSONL| TR["knowlyr-trainer<br/>SFT · DPO · GRPO<br/>观察遮蔽 · 步骤加权 · 课程学习"]
-    H --> O3["HuggingFace 发布"]
-    TR --> M["训练后模型"]
+graph LR
+    subgraph MDP["MDP Environment Layer"]
+        ENV["AgentEnv<br/>reset() / step() / close()"]
+        TS["TimeStep<br/>observation · reward<br/>terminated · truncated"]
+        ENV --> TS
+    end
 
-    style C fill:#2d333b,color:#adbac7,stroke:#444c56
-    style TR fill:#0969da,color:#fff,stroke:#0969da
+    subgraph RL["RL Training Loop"]
+        PI["Policy π<br/>(LLM Agent)"]
+        COL["Rollout<br/>collect()"]
+        RM["Process Reward<br/>Model (PRM)"]
+        EXP["Dataset<br/>SFT / DPO / GRPO"]
+        OPT["Policy<br/>Optimization"]
+    end
+
+    PI -->|action| ENV
+    TS -->|observation| PI
+    COL -->|trajectories| RM
+    RM -->|scored trajectories| EXP
+    EXP --> OPT
+    OPT -->|updated π| PI
+    ENV -.->|wrappers| COL
+
+    style MDP fill:#1a1a2e,color:#e0e0e0,stroke:#444
+    style RL fill:#0d1b2a,color:#e0e0e0,stroke:#444
+    style PI fill:#0969da,color:#fff,stroke:#0969da
+    style RM fill:#8b5cf6,color:#fff,stroke:#8b5cf6
 ```
 
-## 安装
+## MDP Formulation
 
-```bash
-pip install knowlyr-hub[all]   # 安装全部包
-```
+将 tool-use agent 任务建模为 MDP $\langle \mathcal{S}, \mathcal{A}, T, R, \gamma \rangle$：
 
-<details>
-<summary>📦 按需安装单个包</summary>
+| Symbol | Definition | Implementation |
+|--------|-----------|----------------|
+| $\mathcal{S}$ | State space (text observations) | `TimeStep.observation: str` |
+| $\mathcal{A}$ | Action space (tool calls) | `{"tool": str, "params": dict}` |
+| $T(s'\|s,a)$ | Transition dynamics | `AgentEnv.step(action) → TimeStep` |
+| $R(s,a)$ | Reward function | `RewardEngine` — three-layer PRM |
+| $\pi(a\|s)$ | Policy | LLM agent: `observation → action` |
+| $\gamma$ | Horizon | `MaxStepsWrapper` (implicit truncation) |
 
-```bash
-pip install knowlyr-core       # 共享模型（其他包会自动依赖）
-pip install knowlyr-sandbox    # 沙箱执行
-pip install knowlyr-recorder   # 轨迹录制
-pip install knowlyr-reward     # Reward 评分
-pip install knowlyr-hub        # Pipeline 编排
-pip install knowlyr-trainer    # Agent 训练
+**Environment protocol** 借鉴 Gymnasium (Towers et al., 2024)，并针对 LLM Agent 场景做出适配：动作空间为结构化 tool call（而非连续/离散向量），状态空间为自然语言文本，终止条件由 `terminated` (任务完成) 和 `truncated` (步数/超时截断) 双信号控制。
 
-# 可选依赖
-pip install knowlyr-reward[llm]      # LLM-as-Judge (anthropic + openai)
-pip install knowlyr-trainer[peft]    # LoRA 微调
-pip install knowlyr-trainer[wandb]   # wandb 日志
-```
+## Components
 
-</details>
+6 个独立 PyPI 包，对应 RL 系统各组件：
 
-## 快速开始
+| Package | RL Role | Description | Tests |
+|---------|---------|-------------|-------|
+| [**knowlyr-core**](packages/core/) | MDP Protocol | `AgentEnv` · `TimeStep` · `EnvWrapper` · `Registry` · `DomainProfile` | 96 |
+| [**knowlyr-sandbox**](packages/sandbox/) | Environment | Docker 沙箱执行 · `SandboxEnv` · `ConversationEnv` | 101 |
+| [**knowlyr-recorder**](packages/recorder/) | Trajectory Buffer | Agent 日志解析 · 标准化轨迹 · 适配器注册表 | 62 |
+| [**knowlyr-reward**](packages/reward/) | Reward Model | 三层 PRM · Rubric 评分 · 偏好对构建 | 136 |
+| [**knowlyr-hub**](packages/hub/) | Rollout & Data | `collect()` 采样 · `DatasetExporter` · Pipeline 编排 | 92 |
+| [**knowlyr-trainer**](packages/trainer/) | Policy Optimization | SFT · DPO · GRPO · 评估 · 推理桥 | 195 |
 
-### CLI
+各包独立安装、独立使用，无交叉依赖。Hub 通过可选依赖串联数据管线，Trainer 消费 Hub 导出的 JSONL。
 
-```bash
-# 1. 转换 Agent 日志为标准轨迹
-knowlyr-recorder convert agent_log.jsonl -f openhands -o trajectory.json
+## Environments
 
-# 2. 对轨迹计算 Reward（默认 coding 领域）
-knowlyr-reward score trajectory.json
+### Registered Environments
 
-# 3. 对浏览器 Agent 轨迹评分（指定领域）
-knowlyr-reward score browser_traj.json --domain browser
+通过 `Registry` 注册的 Gymnasium-style 环境：
 
-# 4. 对话领域评分（数字员工回复质量）
-knowlyr-reward score conversation_traj.json --domain conversation
+| env_id | Class | Domain | Terminal Condition |
+|--------|-------|--------|-------------------|
+| `knowlyr/sandbox` | `SandboxEnv` | coding | `submit` / `finish` |
+| `knowlyr/conversation` | `ConversationEnv` | conversation | `respond` |
+| `knowlyr/engineering` | `ConversationEnv` | engineering | `submit` / `finish` |
+| `knowlyr/advisory` | `ConversationEnv` | advisory | `submit` / `finish` |
+| `knowlyr/discussion` | `ConversationEnv` | discussion | `respond` / `submit` |
 
-# 5. 使用自定义 DomainProfile 评分
-knowlyr-reward score traj.json --domain examples/browser_profile.json
+### Domain Profiles
 
-# 6. 使用第三方 OpenAI 兼容 API 做 LLM Judge（Moonshot 等）
-knowlyr-reward score traj.json --llm --base-url https://api.moonshot.cn/v1
+`DomainProfile` 声明式配置环境领域特征——工具集、工具类别、结果判定规则、评分维度权重。系统内置 7 个领域：
 
-# 7. 比较同一任务的多条轨迹
-knowlyr-reward compare traj_a.json traj_b.json
+| Domain | Typical Tools | Application |
+|--------|--------------|-------------|
+| **coding** | `read_file`, `edit_file`, `bash`, `grep`, `submit` | Code Agent (SWE-bench style) |
+| **browser** | `navigate`, `click`, `type_text`, `scroll`, `screenshot` | Web automation |
+| **conversation** | `respond`, `query_stats`, `send_message`, `web_search` | Dialog agent |
+| **engineering** | `read_file`, `grep`, `git`, `knowledge_base`, `bash` | Code review, architecture |
+| **advisory** | `respond`, `knowledge_base`, `web_search`, `create_note` | Expert consultation |
+| **discussion** | `respond`, `knowledge_base`, `think` | Multi-turn discussion |
+| **generic** | (empty — heuristic fallback) | Custom domains |
 
-# 8. Hub: 处理单个日志 → 带 Reward 的标准轨迹
-knowlyr-hub process agent_log.jsonl -f openhands --save
+### Composable Wrappers
 
-# 9. Hub: 批量处理日志目录
-knowlyr-hub process-batch ./logs/ -f sweagent -p "*.json"
-
-# 10. 导出为训练格式
-knowlyr-hub export --format sft -t output/trajectories.jsonl -o sft_data.jsonl
-knowlyr-hub export --format dpo -t output/trajectories.jsonl -p output/preferences.jsonl -o dpo_data.jsonl
-knowlyr-hub export --format grpo -t output/trajectories.jsonl -o grpo_data.jsonl
-
-# 11. 训练模型（Agent 模式: 观察遮蔽 + 步骤加权）
-knowlyr-trainer sft --train-file sft_data.jsonl --model Qwen/Qwen2.5-Coder-7B
-knowlyr-trainer dpo --train-file dpo_data.jsonl --model ./output/sft/final --beta 0.1
-knowlyr-trainer grpo --train-file grpo_data.jsonl --model ./output/sft/final
-
-# 12. 发布到 HuggingFace
-knowlyr-hub publish -t output/trajectories.jsonl --repo-id user/my-dataset --generate-card
-```
-
-### Python API
+借鉴 Gymnasium Wrapper 模式，4 个可组合环境变换器：
 
 ```python
-from trajectoryhub import Pipeline, PipelineConfig, Trajectory
+from knowlyrcore.wrappers import MaxStepsWrapper, TimeoutWrapper, RewardWrapper, RecorderWrapper
 
-# 从日志生成带评分的轨迹
-pipeline = Pipeline(PipelineConfig(output_dir="./output"))
-traj: Trajectory = pipeline.run_from_log("agent.jsonl", "openhands")
-print(f"Reward: {traj.reward:.3f}, Steps: {traj.total_steps}")
+env = make("knowlyr/sandbox")
+env = MaxStepsWrapper(env, max_steps=50)           # horizon truncation
+env = RewardWrapper(env, reward_fn=my_reward_fn)   # step-level reward injection
+env = RecorderWrapper(env, agent_name="my-agent")  # trajectory recording
 
-# 批量处理
-trajectories = pipeline.run_batch_from_logs("./logs/", "sweagent", "*.json")
+ts = env.reset(task=my_task)
+while not ts.done:
+    action = agent(ts.observation)
+    ts = env.step(action)
 
-# 直接使用 Reward 引擎
-from agentreward import RewardEngine
-engine = RewardEngine()
-result = engine.score({"task": "Fix bug", "steps": [...], "outcome": {"success": True}})
-print(f"Total: {result.total_score:.3f}")
-
-# 多领域: 用 Browser DomainProfile 评分
-from knowlyrcore import load_domain_profile
-from agentreward import RewardEngine
-
-profile = load_domain_profile("browser_profile.json")
-engine = RewardEngine(profile=profile)
-result = engine.score(browser_trajectory_data)
-
-# 对话领域: 评估数字员工回复质量
-from knowlyrcore.domain import CONVERSATION_PROFILE
-engine = RewardEngine(profile=CONVERSATION_PROFILE)
-result = engine.score(conversation_trajectory_data)
+trajectory = env.get_trajectory()
 ```
 
-<details>
-<summary>🏋️ Gym-Style API</summary>
-
-## Gym-Style API
-
-借鉴 [Gymnasium](https://github.com/Farama-Foundation/Gymnasium) / [BrowserGym](https://github.com/ServiceNow/BrowserGym) / [AgentGym](https://github.com/WooooDyy/AgentGym) 设计，提供统一的环境协议和可组合 Wrapper。
-
-### AgentEnv 协议
-
-所有环境（Docker 沙箱、浏览器、API mock）实现相同接口：
+### Custom Environments
 
 ```python
-from knowlyrcore.env import AgentEnv
-from knowlyrcore.timestep import TimeStep
+from knowlyrcore import AgentEnv, TimeStep, register, make
 
 class MyEnv(AgentEnv):
     domain = "my_domain"
@@ -188,252 +152,220 @@ class MyEnv(AgentEnv):
     @property
     def available_tools(self):
         return ["observe", "act", "submit"]
-```
-
-### 注册与发现
-
-```python
-from knowlyrcore.registry import register, make, list_envs
 
 register("my-project/my-env", MyEnv, domain="my_domain")
-
-env = make("my-project/my-env")      # 按 ID 创建实例
-envs = list_envs(domain="coding")    # 按领域查询
+env = make("my-project/my-env")
 ```
 
-### Wrapper 可组合
+## Three-Layer Process Reward Model
+
+与仅评估最终结果的 Outcome Reward Model (ORM) 不同，本系统实现步骤级 Process Reward Model (PRM)，为每个 action 计算即时奖励 $r_t = R(s_t, a_t)$，三层架构逐层提升评估质量：
+
+```
+Layer 1: Rule-based (deterministic)     Layer 2: LLM-as-Judge         Layer 3: Human
+┌─────────────────────────────────┐    ┌──────────────────────────┐   ┌──────────────┐
+│ Redundancy detection            │    │ Rubric-based scoring     │   │ Calibration  │
+│ Regression detection            │ →  │ Multi-dimensional eval   │ → │ via human    │
+│ Information utilization         │    │ Semantic quality judge   │   │ annotations  │
+│ Efficiency analysis             │    │ (OpenAI / Anthropic API) │   │              │
+└─────────────────────────────────┘    └──────────────────────────┘   └──────────────┘
+  Cost: ~0        Latency: <1ms          Cost: ~$0.01/step              Offline
+```
+
+**Rubric 评分维度**（可按 DomainProfile 自定义权重）：
+
+| Rubric | Evaluator | Description |
+|--------|-----------|-------------|
+| `goal_progress` | model | 每步是否推进了任务目标 |
+| `tool_selection` | model | 工具选择是否合理 |
+| `param_correctness` | model | 参数是否正确 |
+| `info_utilization` | rule | 是否利用了之前步骤的信息 |
+| `non_redundancy` | rule | 是否避免了重复操作 |
+
+## Policy Optimization
+
+### Training Methods
+
+| Method | Algorithm | Data Format | Use Case |
+|--------|-----------|-------------|----------|
+| **SFT** | Cross-entropy | instruction → response | Behavioral cloning from expert trajectories |
+| **DPO** | Rafailov et al., 2023 | (chosen, rejected) pairs | Preference alignment without reward model |
+| **GRPO** | DeepSeek-R1, 2024 | grouped trajectories | Online policy optimization with group advantage |
+
+### Agent Training Enhancements
+
+6 项针对 LLM Agent 长程任务的训练增强：
+
+| Enhancement | Config | Description |
+|-------------|--------|-------------|
+| Multi-turn format | `agent_format=True` | 轨迹转为 assistant(thought+action) / user(observation) 多轮对话 |
+| Observation masking | `mask_observations=True` | 环境 observation token 的 labels=-100，只学习决策，不学环境动力学 |
+| Step-weighted loss | `step_weighted_loss=True` | 用步骤级 process reward 加权每 token 的 CE loss |
+| Trajectory chunking | `chunk_long_trajectories=True` | 超长轨迹按步骤边界拆分，保留重叠上下文 |
+| Curriculum learning | `curriculum=True` | 从短/高reward 轨迹到长/低reward 轨迹渐进训练 |
+| Step-level GRPO | `step_level_advantage=True` | 轨迹级 advantage 乘以步骤 reward 加权 |
+
+### Online Training Loop
+
+推理桥 (`AgentInference`) 实现 collect → train → collect 闭环，支持在线迭代训练：
+
+```mermaid
+graph LR
+    M["Checkpoint"] --> I["AgentInference<br/>from_pretrained()"]
+    I --> A["create_agent()"]
+    A --> C["collect()<br/>n_episodes × env"]
+    C --> R["RewardEngine<br/>score()"]
+    R --> E["DatasetExporter<br/>SFT / DPO / GRPO"]
+    E --> T["Trainer<br/>SFT / DPO / GRPO"]
+    T --> M
+
+    style M fill:#0969da,color:#fff
+    style T fill:#0969da,color:#fff
+```
+
+### Evaluation & Statistical Testing
+
+`evaluate_agent()` 和 `compare_agents()` 提供 Agent 级别评估，内置统计检验（无 scipy 依赖）：
+
+- **Welch's t-test** / **Mann-Whitney U** — 独立样本对比
+- **Paired t-test** — 同任务配对对比
+- **Bootstrap CI** — 非参数置信区间
+- **Bonferroni correction** — 多重比较校正
+- **Leaderboard** — 按 avg_reward 排序 + 显著性标注
+
+## Quick Start
+
+### Environment Interaction
 
 ```python
-from knowlyrcore.wrappers import MaxStepsWrapper, RewardWrapper, RecorderWrapper
+from knowlyrcore import make
 
-env = make("knowlyr/sandbox")
-env = MaxStepsWrapper(env, max_steps=50)           # 限制步数
-env = RewardWrapper(env, reward_fn=my_reward_fn)   # 注入 reward
-env = RecorderWrapper(env, agent_name="my-agent")  # 录制轨迹
-
-ts = env.reset(task=my_task)
+env = make("knowlyr/conversation")
+ts = env.reset(task="帮用户查询订单状态")
 while not ts.done:
-    action = agent(ts.observation)
-    ts = env.step(action)
-
-trajectory = env.get_trajectory()   # RecorderWrapper 提供
+    action = my_agent(ts.observation)   # π(a|s)
+    ts = env.step(action)              # s', r, done
+env.close()
 ```
 
-内置 4 个 Wrapper：`MaxStepsWrapper` (步数截断)、`TimeoutWrapper` (超时截断)、`RewardWrapper` (reward 注入)、`RecorderWrapper` (轨迹录制)。
-
-### collect() 批量收集
+### Trajectory Collection with Reward
 
 ```python
-from trajectoryhub import collect
+from trajectoryhub import collect, make_reward_fn
 
-trajs = collect(
-    "knowlyr/sandbox",       # env ID 或 AgentEnv 实例
-    agent=my_agent,          # (observation) -> action dict
-    n_episodes=10,
+reward_fn = make_reward_fn(domain="coding")  # 规则层 PRM
+trajectories = collect(
+    "knowlyr/sandbox",
+    agent=my_agent,
+    n_episodes=20,
     max_steps=30,
-    agent_name="my-agent",
-    model_name="gpt-4o",
+    reward_fn=reward_fn,
 )
 ```
 
-详见 [`examples/gym_usage.py`](examples/gym_usage.py)。
+### End-to-End Training Loop
 
-</details>
+```python
+from agenttrainer import SFTConfig, AgentInference
+from trajectoryhub import collect, make_reward_fn, DatasetExporter
 
-<details>
-<summary>🧠 Agent 训练</summary>
+# 1. Collect trajectories
+trajectories = collect("knowlyr/conversation", agent=my_agent, n_episodes=100)
 
-## Agent 训练
+# 2. Export to training format
+exporter = DatasetExporter(trajectories_dir="./trajectories.jsonl")
+exporter.export_sft("./sft_train.jsonl")
 
-[knowlyr-trainer](packages/trainer/) 提供纯 PyTorch 的 SFT / DPO / GRPO 训练，专为 Agent 长程任务设计。
+# 3. Train policy
+# knowlyr-trainer sft --train-file sft_train.jsonl --model Qwen/Qwen2.5-Coder-7B
 
-### 端到端 Pipeline
+# 4. Load updated policy → next iteration
+inference = AgentInference.from_pretrained("./checkpoints/step-1000")
+updated_agent = inference.create_agent(system_prompt="你是代码助手")
+new_trajectories = collect("knowlyr/sandbox", agent=updated_agent, n_episodes=50)
+```
+
+### CLI
 
 ```bash
-# 1. 数据准备（通过 hub 导出）
+# Trajectory recording & reward scoring
+knowlyr-recorder convert agent_log.jsonl -f openhands -o trajectory.json
+knowlyr-reward score trajectory.json --domain coding
+
+# Dataset export
 knowlyr-hub export --format sft -t trajectories.jsonl -o sft_data.jsonl
+knowlyr-hub export --format dpo -t trajectories.jsonl -p preferences.jsonl -o dpo_data.jsonl
 
-# 2. Agent 模式 SFT 训练
-knowlyr-trainer sft --train-file sft_data.jsonl \
-  --model Qwen/Qwen2.5-Coder-7B \
-  --config agent_train.yaml
+# Policy optimization
+knowlyr-trainer sft --train-file sft_data.jsonl --model Qwen/Qwen2.5-Coder-7B
+knowlyr-trainer dpo --train-file dpo_data.jsonl --model ./output/sft/final --beta 0.1
+knowlyr-trainer grpo --train-file grpo_data.jsonl --model ./output/sft/final
 ```
 
-```yaml
-# agent_train.yaml
-agent_format: true          # 多轮对话格式
-mask_observations: true     # 只对 thought+action 计算 loss
-step_weighted_loss: true    # 步骤级 reward 加权
-curriculum: true            # 从简单到困难渐进式训练
+## Installation
+
+```bash
+pip install knowlyr-hub[all]   # 全部包
 ```
-
-### Agent 训练增强
-
-| 增强 | 说明 |
-|------|------|
-| 多轮对话格式 | 每步拆为 assistant(thought+action) / user(observation) |
-| 观察遮蔽 | 环境 observation 不参与 loss，模型只学习决策 |
-| 步骤加权 loss | 用 process reward 加权每步的 CE loss |
-| 长轨迹分块 | 超过 max_length 的轨迹按步骤边界拆分 |
-| 课程学习 | 从短/简单轨迹到长/困难轨迹渐进训练 |
-| 步骤级 GRPO | 轨迹级 advantage × 步骤 reward 加权 |
-
-详见 [`packages/trainer/README.md`](packages/trainer/README.md)。
-
-</details>
-
-## 多领域支持
-
-默认为 **coding** 领域（Code Agent / SWE-bench），同时支持 Browser Agent、**Conversation Agent（数字员工）** 等任意 tool-use agent 领域。通过 `DomainProfile` 声明式配置，告诉每个包当前在哪个领域运行。
-
-> 新增 **conversation** 领域：专为对话型 AI 员工设计，评估维度为相关性、完整性、清晰度、可操作性、语气匹配，而非工具调用正确性。支持 OpenAI 兼容 base_url（Moonshot 等）做 LLM Judge。
-
-### 内置领域
-
-| 领域 | Profile | 说明 | 预定义工具 |
-|------|---------|------|-----------|
-| `coding` | `CODING_PROFILE` | Code Agent (默认) | read_file, edit_file, bash, grep, submit... |
-| `browser` | `BROWSER_PROFILE` | Browser Agent | navigate, click, type_text, screenshot, scroll... |
-| `conversation` | `CONVERSATION_PROFILE` | 对话 Agent (数字员工) | respond, query_stats, send_message, delegate, web_search, create_note, think |
-| `generic` | `GENERIC_PROFILE` | 通用 (无预定义工具) | 规则层退化为启发式模式 |
 
 <details>
-<summary>🔧 自定义 DomainProfile</summary>
+<summary>按需安装</summary>
 
-### DomainProfile 结构
+```bash
+pip install knowlyr-core       # MDP protocol
+pip install knowlyr-sandbox    # Environment
+pip install knowlyr-recorder   # Trajectory buffer
+pip install knowlyr-reward     # Reward model
+pip install knowlyr-hub        # Rollout & data
+pip install knowlyr-trainer    # Policy optimization
 
-```python
-from knowlyrcore import DomainProfile, ToolSpec, ToolCategory, OutcomeSpec
-
-profile = DomainProfile(
-    domain="my_domain",
-    display_name="My Custom Domain",
-    tools=[
-        ToolSpec(name="observe", category=ToolCategory.READ, stateful_key="target"),
-        ToolSpec(name="act", category=ToolCategory.WRITE, stateful_key="target"),
-        ToolSpec(name="search", category=ToolCategory.SEARCH),
-        ToolSpec(name="done", category=ToolCategory.SUBMIT),
-    ],
-    outcome_spec=OutcomeSpec(success_field="success", score_field="score"),
-    default_rubric_weights={
-        "goal_progress": 0.35,
-        "tool_selection": 0.20,
-        "param_correctness": 0.20,
-        "info_utilization": 0.10,
-        "non_redundancy": 0.15,
-    },
-)
+# Optional
+pip install knowlyr-reward[llm]      # LLM-as-Judge (Anthropic + OpenAI)
+pip install knowlyr-trainer[peft]    # LoRA fine-tuning
+pip install knowlyr-trainer[wandb]   # Weights & Biases logging
 ```
-
-工具类别 (`ToolCategory`)：`READ` / `WRITE` / `SEARCH` / `EXECUTE` / `NAVIGATE` / `SUBMIT` / `THINK`
-
-### 自定义适配器
-
-Recorder 提供适配器注册表，支持注册自定义 Agent 框架适配器：
-
-```python
-from agentrecorder.adapters import BaseAdapter, register_adapter
-
-class MyAgentAdapter(BaseAdapter):
-    domain = "browser"
-
-    def parse(self, log_path: str) -> Trajectory:
-        ...  # 解析你的 Agent 日志
-
-    def validate(self, log_path: str) -> bool:
-        ...  # 验证日志格式
-
-register_adapter("my-agent", MyAgentAdapter)
-```
-
-详见 [`examples/browser_profile.json`](examples/browser_profile.json) 和 [`examples/browser_trajectory.json`](examples/browser_trajectory.json)。
 
 </details>
 
-## MCP Server
-
-每个子包提供独立的 MCP Server，共 19 个 Tools：
-
-| Server | 启动方式 |
-|--------|---------|
-| knowlyr-sandbox | `python -m agentsandbox.mcp_server` |
-| knowlyr-recorder | `python -m agentrecorder.mcp_server` |
-| knowlyr-reward | `python -m agentreward.mcp_server` |
-| knowlyr-hub | `python -m trajectoryhub.mcp_server` |
-
-<details>
-<summary>19 Tools 详情</summary>
-
-- **sandbox**: `create_sandbox`, `execute_tool`, `reset_sandbox`, `replay_trajectory`, `sandbox_snapshot`
-- **recorder**: `convert_log`, `validate_log`, `get_schema`, `recorder_diff`
-- **reward**: `score_trajectory`, `compare_trajectories`, `build_preferences`, `list_rubrics`, `reward_leaderboard`
-- **hub**: `run_pipeline`, `export_dataset`, `process_log`, `process_logs_batch`, `pipeline_status`
-
-</details>
-
-## 开发
+## Development
 
 ```bash
 git clone https://github.com/liuxiaotong/knowlyr-agent.git
 cd knowlyr-agent
 
 make install-dev        # 开发模式安装全部包
-make test               # 运行全部测试 (520 passed)
-make test-sandbox       # 单独测试某个包
+make test               # 运行全部测试 (699 passed)
 make test-integration   # 跨包集成测试 (17 tests)
-make lint               # ruff 检查
-make build              # 构建全部包
+make lint               # ruff check
 ```
 
-## Data Pipeline 生态
+## Ecosystem
 
-本项目是 [knowlyr 数据工程生态](https://github.com/liuxiaotong) 的 Agent 工具链部分：
+knowlyr-agent 是 [knowlyr 数据工程生态](https://github.com/liuxiaotong) 的 Agent RL 框架：
 
-### 生态项目
+| Layer | Project | PyPI | Description |
+|-------|---------|------|-------------|
+| Intelligence | **Radar** | knowlyr-radar | AI dataset competitive intelligence |
+| Analysis | **DataRecipe** | knowlyr-datarecipe | Dataset reverse engineering |
+| Production | **DataSynth** | knowlyr-datasynth | LLM data synthesis |
+| Production | **DataLabel** | knowlyr-datalabel | Lightweight annotation |
+| Quality | **DataCheck** | knowlyr-datacheck | Data quality validation |
+| Audit | **ModelAudit** | knowlyr-modelaudit | Distillation detection & model fingerprint |
+| Orchestration | **Crew** | knowlyr-crew | Digital workforce management |
+| **RL Framework** | **knowlyr-agent** | core/sandbox/recorder/reward/hub/trainer | **You are here** |
 
-| 层 | 项目 | PyPI 包 | 说明 | 仓库 |
-|---|---|---|---|---|
-| 情报 | **Radar** | knowlyr-radar | 竞争情报、趋势分析 | [GitHub](https://github.com/liuxiaotong/ai-dataset-radar) |
-| 分析 | **DataRecipe** | knowlyr-datarecipe | 逆向分析、Schema 提取 | [GitHub](https://github.com/liuxiaotong/data-recipe) |
-| 生产 | **DataSynth** | knowlyr-datasynth | LLM 批量合成 | [GitHub](https://github.com/liuxiaotong/data-synth) |
-| 生产 | **DataLabel** | knowlyr-datalabel | 轻量标注 | [GitHub](https://github.com/liuxiaotong/data-label) |
-| 质检 | **DataCheck** | knowlyr-datacheck | 规则验证、重复检测 | [GitHub](https://github.com/liuxiaotong/data-check) |
-| 审计 | **ModelAudit** | knowlyr-modelaudit | 蒸馏检测、模型指纹 | [GitHub](https://github.com/liuxiaotong/model-audit) |
-| 协作 | **Crew** | knowlyr-crew | 数字员工管理 | [GitHub](https://github.com/liuxiaotong/knowlyr-crew) |
-| Agent | **knowlyr-agent** | sandbox/recorder/reward/hub/trainer | Agent 工具链 + 训练 | You are here |
+## References
 
-<details>
-<summary>🗺️ 生态架构图</summary>
+This project builds upon the following work:
 
-```mermaid
-graph LR
-    subgraph 数据管线
-        Radar["🔍 Radar<br/>情报发现"] --> Recipe["📋 Recipe<br/>逆向分析"]
-        Recipe --> Synth["🔄 Synth<br/>数据合成"]
-        Recipe --> Label["🏷️ Label<br/>数据标注"]
-        Synth --> Check["✅ Check<br/>数据质检"]
-        Label --> Check
-    end
-    Audit["🔬 Audit<br/>模型审计"]
-    subgraph Agent 工具链
-        Hub["🎯 Hub<br/>编排层"] --> Sandbox["📦 Sandbox<br/>执行沙箱"]
-        Sandbox --> Recorder["📹 Recorder<br/>轨迹录制"]
-        Recorder --> Reward["⭐ Reward<br/>过程打分"]
-        Reward --> Trainer["🧠 Trainer<br/>SFT/DPO/GRPO"]
-    end
-    Crew["👥 Crew<br/>数字员工"]
-    Crew -.-> Radar
-    Crew -.-> Check
-    Crew -.-> Audit
-    Crew -.-> Hub
-    style Hub fill:#0969da,color:#fff,stroke:#0969da
-    style Sandbox fill:#0969da,color:#fff,stroke:#0969da
-    style Recorder fill:#0969da,color:#fff,stroke:#0969da
-    style Reward fill:#0969da,color:#fff,stroke:#0969da
-    style Trainer fill:#0969da,color:#fff,stroke:#0969da
-```
-
-</details>
+- **Gymnasium** — Towers et al., 2024. *Gymnasium: A Standard Interface for Reinforcement Learning Environments.* [arXiv:2407.17032](https://arxiv.org/abs/2407.17032)
+- **BrowserGym** — Drouin et al., 2024. *WorkArena: How Capable Are Web Agents at Solving Common Knowledge Work Tasks?* [arXiv:2403.07718](https://arxiv.org/abs/2403.07718)
+- **AgentGym** — Xi et al., 2024. *AgentGym: Evolving Large Language Model-based Agents across Diverse Environments.* [arXiv:2406.04151](https://arxiv.org/abs/2406.04151)
+- **SWE-bench** — Jimenez et al., 2024. *SWE-bench: Can Language Models Resolve Real-World GitHub Issues?* [arXiv:2310.06770](https://arxiv.org/abs/2310.06770)
+- **Process Reward Models** — Lightman et al., 2023. *Let's Verify Step by Step.* [arXiv:2305.20050](https://arxiv.org/abs/2305.20050)
+- **DPO** — Rafailov et al., 2023. *Direct Preference Optimization: Your Language Model is Secretly a Reward Model.* [arXiv:2305.18290](https://arxiv.org/abs/2305.18290)
+- **GRPO** — Shao et al., 2024. *DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models.* [arXiv:2402.03300](https://arxiv.org/abs/2402.03300)
+- **LLM-as-Judge** — Zheng et al., 2023. *Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena.* [arXiv:2306.05685](https://arxiv.org/abs/2306.05685)
 
 ## License
 
@@ -442,5 +374,5 @@ MIT
 ---
 
 <div align="center">
-<sub><a href="https://github.com/liuxiaotong">knowlyr</a> 数据工程生态 · Agent 轨迹数据工程</sub>
+<sub><a href="https://github.com/liuxiaotong">knowlyr</a> — Pro-human infrastructure in the AI era</sub>
 </div>
