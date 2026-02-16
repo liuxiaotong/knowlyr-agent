@@ -198,6 +198,90 @@ CONVERSATION_PROFILE = DomainProfile(
     },
 )
 
+ENGINEERING_PROFILE = DomainProfile(
+    domain="engineering",
+    display_name="Engineering Agent",
+    tools=[
+        ToolSpec(
+            name="read_file", category=ToolCategory.READ,
+            stateful_key="file_path",
+            aliases=["file_read", "cat"],
+        ),
+        ToolSpec(
+            name="grep", category=ToolCategory.SEARCH,
+            aliases=["glob", "find", "search"],
+        ),
+        ToolSpec(
+            name="git", category=ToolCategory.EXECUTE,
+            aliases=["git_diff", "git_log"],
+        ),
+        ToolSpec(
+            name="knowledge_base", category=ToolCategory.READ,
+            aliases=["kb", "docs"],
+        ),
+        ToolSpec(
+            name="bash", category=ToolCategory.EXECUTE,
+            aliases=["shell", "run"],
+        ),
+        ToolSpec(name="think", category=ToolCategory.THINK),
+    ],
+    outcome_spec=OutcomeSpec(success_field="success"),
+    task_fields={
+        "target": "审查/分析目标",
+        "focus": "审查重点 (security / performance / style / all)",
+    },
+)
+
+ADVISORY_PROFILE = DomainProfile(
+    domain="advisory",
+    display_name="Advisory Agent",
+    tools=[
+        ToolSpec(
+            name="respond", category=ToolCategory.WRITE,
+            aliases=["reply", "answer"],
+        ),
+        ToolSpec(
+            name="knowledge_base", category=ToolCategory.READ,
+            aliases=["kb", "docs", "research"],
+        ),
+        ToolSpec(
+            name="web_search", category=ToolCategory.SEARCH,
+            aliases=["search", "browse"],
+        ),
+        ToolSpec(
+            name="create_note", category=ToolCategory.WRITE,
+            aliases=["note", "memo"],
+        ),
+        ToolSpec(name="think", category=ToolCategory.THINK),
+    ],
+    outcome_spec=OutcomeSpec(success_field="success"),
+    task_fields={
+        "context": "分析上下文",
+        "domain": "专业领域",
+    },
+)
+
+DISCUSSION_PROFILE = DomainProfile(
+    domain="discussion",
+    display_name="Discussion Agent",
+    tools=[
+        ToolSpec(
+            name="respond", category=ToolCategory.WRITE,
+            aliases=["reply", "contribute"],
+        ),
+        ToolSpec(
+            name="knowledge_base", category=ToolCategory.READ,
+            aliases=["kb", "reference"],
+        ),
+        ToolSpec(name="think", category=ToolCategory.THINK),
+    ],
+    outcome_spec=OutcomeSpec(success_field="success"),
+    task_fields={
+        "topic": "讨论主题",
+        "participants": "参与者",
+    },
+)
+
 GENERIC_PROFILE = DomainProfile(
     domain="generic",
     display_name="Generic Tool-Use Agent",
@@ -209,6 +293,9 @@ _BUILTIN_PROFILES: dict[str, DomainProfile] = {
     "coding": CODING_PROFILE,
     "browser": BROWSER_PROFILE,
     "conversation": CONVERSATION_PROFILE,
+    "engineering": ENGINEERING_PROFILE,
+    "advisory": ADVISORY_PROFILE,
+    "discussion": DISCUSSION_PROFILE,
     "generic": GENERIC_PROFILE,
 }
 

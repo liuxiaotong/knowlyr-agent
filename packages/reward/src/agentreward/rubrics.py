@@ -158,15 +158,160 @@ def get_conversation_rubric_set() -> RubricSet:
     )
 
 
+def get_engineering_rubric_set() -> RubricSet:
+    """Return rubric set for engineering employees (code-reviewer, backend-engineer, etc.).
+
+    适用于工程类 AI 员工，评估维度侧重技术分析准确性和工具使用合理性。
+    """
+    return RubricSet(
+        rubrics=[
+            Rubric(
+                id="technical_accuracy",
+                name="技术准确性",
+                description="技术分析是否正确？代码审查、方案设计是否无明显错误？",
+                weight=0.30,
+                evaluator="model",
+            ),
+            Rubric(
+                id="tool_usage",
+                name="工具使用",
+                description="工具使用是否合理高效？是否选对了工具、参数是否正确？",
+                weight=0.20,
+                evaluator="model",
+            ),
+            Rubric(
+                id="thoroughness",
+                name="全面性",
+                description="是否全面覆盖了应检查的方面？有无遗漏重要问题？",
+                weight=0.20,
+                evaluator="model",
+            ),
+            Rubric(
+                id="info_utilization",
+                name="信息利用",
+                description="是否利用了已有的上下文信息（代码、文档、历史）？",
+                weight=0.15,
+                evaluator="rule",
+            ),
+            Rubric(
+                id="non_redundancy",
+                name="非冗余性",
+                description="输出是否非冗余？是否避免了重复分析？",
+                weight=0.15,
+                evaluator="rule",
+            ),
+        ]
+    )
+
+
+def get_advisory_rubric_set() -> RubricSet:
+    """Return rubric set for advisory employees (product-manager, hr-manager, etc.).
+
+    适用于顾问类 AI 员工，评估维度侧重分析深度和建议质量。
+    """
+    return RubricSet(
+        rubrics=[
+            Rubric(
+                id="analysis_depth",
+                name="分析深度",
+                description="分析是否深入到根因？而非仅描述表面现象？",
+                weight=0.25,
+                evaluator="model",
+            ),
+            Rubric(
+                id="recommendation_quality",
+                name="建议质量",
+                description="建议是否具体可执行？是否包含 who/what/when？",
+                weight=0.25,
+                evaluator="model",
+            ),
+            Rubric(
+                id="evidence_based",
+                name="证据支撑",
+                description="结论是否有数据、案例或逻辑支撑？而非空泛断言？",
+                weight=0.20,
+                evaluator="model",
+            ),
+            Rubric(
+                id="risk_awareness",
+                name="风险意识",
+                description="是否识别了潜在风险和不确定性？",
+                weight=0.15,
+                evaluator="model",
+            ),
+            Rubric(
+                id="stakeholder_consideration",
+                name="利益方考虑",
+                description="是否考虑了不同利益方的视角和影响？",
+                weight=0.15,
+                evaluator="model",
+            ),
+        ]
+    )
+
+
+def get_discussion_rubric_set() -> RubricSet:
+    """Return rubric set for discussion/meeting evaluation.
+
+    适用于 AI 间讨论场景，评估参与者的讨论质量和贡献。
+    """
+    return RubricSet(
+        rubrics=[
+            Rubric(
+                id="substantive_contribution",
+                name="实质贡献",
+                description="是否提供了新信息、新观点或有价值的洞察？",
+                weight=0.25,
+                evaluator="model",
+            ),
+            Rubric(
+                id="engagement_quality",
+                name="互动质量",
+                description="是否直接回应了他人的观点？而非自说自话？",
+                weight=0.25,
+                evaluator="model",
+            ),
+            Rubric(
+                id="professional_depth",
+                name="专业深度",
+                description="是否体现了所属领域的专业知识？",
+                weight=0.20,
+                evaluator="model",
+            ),
+            Rubric(
+                id="constructive_challenge",
+                name="建设性质疑",
+                description="是否提出了有价值的质疑或补充？而非一味附和？",
+                weight=0.15,
+                evaluator="model",
+            ),
+            Rubric(
+                id="actionability",
+                name="可行动性",
+                description="是否推动了讨论得出结论或行动项？",
+                weight=0.15,
+                evaluator="model",
+            ),
+        ]
+    )
+
+
 def get_rubric_set_for_domain(domain: str) -> RubricSet:
     """根据领域获取对应的 RubricSet.
 
     Args:
-        domain: 领域标识 (coding / conversation / 其他)
+        domain: 领域标识 (coding / conversation / engineering / advisory / discussion)
 
     Returns:
         对应领域的 RubricSet
     """
-    if domain == "conversation":
-        return get_conversation_rubric_set()
+    _domain_rubric_map = {
+        "conversation": get_conversation_rubric_set,
+        "engineering": get_engineering_rubric_set,
+        "advisory": get_advisory_rubric_set,
+        "discussion": get_discussion_rubric_set,
+    }
+    factory = _domain_rubric_map.get(domain)
+    if factory:
+        return factory()
     return get_default_rubric_set()

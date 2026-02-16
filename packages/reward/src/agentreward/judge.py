@@ -110,6 +110,123 @@ CONVERSATION_JUDGE_PROMPT = """你是一个 AI 对话质量评估专家。请根
 - 重点关注: 回复对用户的实际帮助程度，而非工具调用的技术细节
 """
 
+ENGINEERING_JUDGE_PROMPT = """你是一个工程能力评估专家。请根据以下评估维度，对 AI 工程师的这一步操作进行打分。
+
+## 任务描述
+{task_description}
+
+## 当前步骤 (Step {step_index}/{total_steps})
+- 操作类型: {tool_name}
+- 参数: {tool_params}
+- 输出:
+{tool_output}
+
+## 上下文
+{context_summary}
+
+## 评估维度
+{rubric_descriptions}
+
+## 评分要求
+请对每个评估维度给出 0.0-1.0 的分数，并给出简短理由。
+
+输出格式 (JSON):
+{{
+  "scores": {{
+    "<rubric_id>": <score>,
+    ...
+  }},
+  "rationale": "简要说明这一步的整体评价",
+  "overall_score": <加权总分>
+}}
+
+评分标准:
+- 0.0 = 完全不满足
+- 0.3 = 有明显技术错误或遗漏
+- 0.5 = 基本正确但不够深入
+- 0.7 = 正确且较全面
+- 1.0 = 技术精准、分析深入
+- 重点关注: 技术分析的准确性和工具使用的合理性
+"""
+
+ADVISORY_JUDGE_PROMPT = """你是一个专业顾问能力评估专家。请根据以下评估维度，对 AI 顾问的分析/建议进行打分。
+
+## 用户请求
+{task_description}
+
+## 当前步骤 (Step {step_index}/{total_steps})
+- 操作类型: {tool_name}
+- 参数: {tool_params}
+- 输出:
+{tool_output}
+
+## 上下文
+{context_summary}
+
+## 评估维度
+{rubric_descriptions}
+
+## 评分要求
+请对每个评估维度给出 0.0-1.0 的分数，并给出简短理由。
+
+输出格式 (JSON):
+{{
+  "scores": {{
+    "<rubric_id>": <score>,
+    ...
+  }},
+  "rationale": "简要说明这一步的整体评价",
+  "overall_score": <加权总分>
+}}
+
+评分标准:
+- 0.0 = 分析空泛、建议无用
+- 0.3 = 分析浅显、建议不具体
+- 0.5 = 分析基本合理但缺少深度或证据
+- 0.7 = 分析深入、建议可执行
+- 1.0 = 洞察独到、建议精准可行
+- 重点关注: 分析深度、建议的可操作性、是否有证据支撑
+"""
+
+DISCUSSION_JUDGE_PROMPT = """你是一个讨论质量评估专家。请根据以下评估维度，对 AI 参与者在讨论中的发言进行打分。
+
+## 讨论主题
+{task_description}
+
+## 当前发言 (Step {step_index}/{total_steps})
+- 操作类型: {tool_name}
+- 参数: {tool_params}
+- 发言内容:
+{tool_output}
+
+## 讨论上下文 (前序发言摘要)
+{context_summary}
+
+## 评估维度
+{rubric_descriptions}
+
+## 评分要求
+请对每个评估维度给出 0.0-1.0 的分数，并给出简短理由。
+
+输出格式 (JSON):
+{{
+  "scores": {{
+    "<rubric_id>": <score>,
+    ...
+  }},
+  "rationale": "简要说明这位参与者的贡献质量",
+  "overall_score": <加权总分>
+}}
+
+评分标准:
+- 0.0 = 无实质贡献，只是附和或重复
+- 0.3 = 有观点但浅显，未推动讨论
+- 0.5 = 有一定贡献，但缺少专业深度或建设性
+- 0.7 = 提供了有价值的专业观点或推动了结论
+- 1.0 = 发言质量很高，提供了新视角或关键推进
+- 重点关注: 是否提供了新信息、是否回应了他人、是否推动了讨论
+"""
+
 
 @dataclass
 class JudgeConfig:
@@ -321,7 +438,13 @@ def build_judge_prompt(
         tool_output = str(tool_output)[:2000] + "\n... (truncated)"
 
     # 选择 prompt 模板
-    template = CONVERSATION_JUDGE_PROMPT if domain == "conversation" else STEP_JUDGE_PROMPT
+    _domain_template_map = {
+        "conversation": CONVERSATION_JUDGE_PROMPT,
+        "engineering": ENGINEERING_JUDGE_PROMPT,
+        "advisory": ADVISORY_JUDGE_PROMPT,
+        "discussion": DISCUSSION_JUDGE_PROMPT,
+    }
+    template = _domain_template_map.get(domain, STEP_JUDGE_PROMPT)
 
     return template.format(
         task_description=task_description or "(未提供任务描述)",
