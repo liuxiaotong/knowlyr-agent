@@ -404,3 +404,77 @@ class TestComputeStatsCI:
 
         lo, hi = result["success_rate_ci"]
         assert lo <= result["success_rate"] <= hi
+
+
+# ── compare_agents 增强测试 ───────────────────────────────────
+
+
+class TestCompareAgentsEnhanced:
+    """测试 compare_agents 的 leaderboard 和 Bonferroni 校正."""
+
+    def test_leaderboard_present(self):
+        """两个 agent 对比时包含 _leaderboard."""
+        fast_agent = _make_simple_agent(respond_at=1)
+        slow_agent = _make_simple_agent(respond_at=3)
+        env = _MockEnv(success_at_step=5)
+
+        results = compare_agents(
+            agents={"fast": fast_agent, "slow": slow_agent},
+            env=env,
+            n_episodes=3,
+            max_steps=10,
+        )
+
+        assert "_leaderboard" in results
+        lb = results["_leaderboard"]
+        assert len(lb) == 2
+        assert lb[0]["rank"] == 1
+        assert lb[1]["rank"] == 2
+        # 每项包含必要字段
+        assert "agent" in lb[0]
+        assert "success_rate" in lb[0]
+        assert "avg_reward" in lb[0]
+        assert "avg_steps" in lb[0]
+
+    def test_leaderboard_sorted_by_reward(self):
+        """leaderboard 按 avg_reward 降序排列."""
+        fast_agent = _make_simple_agent(respond_at=1)
+        slow_agent = _make_simple_agent(respond_at=3)
+        env = _MockEnv(success_at_step=5)
+
+        results = compare_agents(
+            agents={"fast": fast_agent, "slow": slow_agent},
+            env=env,
+            n_episodes=3,
+            max_steps=10,
+        )
+
+        lb = results["_leaderboard"]
+        if len(lb) == 2:
+            assert lb[0]["avg_reward"] >= lb[1]["avg_reward"]
+
+    def test_no_correction_with_two_agents(self):
+        """两个 agent 时不应用 Bonferroni 校正."""
+        fast_agent = _make_simple_agent(respond_at=1)
+        slow_agent = _make_simple_agent(respond_at=3)
+        env = _MockEnv(success_at_step=5)
+
+        results = compare_agents(
+            agents={"fast": fast_agent, "slow": slow_agent},
+            env=env,
+            n_episodes=3,
+            max_steps=10,
+        )
+
+        assert "_corrected" not in results
+
+    def test_backward_compat_significance_test(self):
+        """significance_test 向后兼容包装器返回 dict."""
+        a = [1.0, 2.0, 3.0, 4.0, 5.0]
+        b = [10.0, 11.0, 12.0, 13.0, 14.0]
+        result = significance_test(a, b)
+        assert isinstance(result, dict)
+        assert "t_statistic" in result
+        assert "p_approx" in result
+        assert "significant" in result
+        assert "effect_size" in result

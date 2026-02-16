@@ -40,63 +40,22 @@ import math
 import statistics
 from typing import Any, Callable
 
+from agenttrainer.eval.stats import (
+    confidence_interval,
+    welch_t_test,
+    bonferroni_correct,
+)
+
 logger = logging.getLogger(__name__)
-
-
-def confidence_interval(
-    data: list[float],
-    confidence: float = 0.95,
-) -> tuple[float, float]:
-    """计算均值的置信区间 (使用 t 分布近似).
-
-    当 n ≥ 30 时 t 分布近似正态分布，使用 z 值；
-    n < 30 时使用查表的 t 值近似。
-
-    Args:
-        data: 数据列表
-        confidence: 置信水平 (默认 0.95)
-
-    Returns:
-        (lower, upper) 置信区间
-    """
-    n = len(data)
-    if n < 2:
-        mean = data[0] if data else 0.0
-        return (mean, mean)
-
-    mean = statistics.mean(data)
-    std_err = statistics.stdev(data) / math.sqrt(n)
-
-    # t 值近似 (95% CI)
-    # n >= 30: z ≈ 1.96; n < 30: 使用简化 t 值表
-    if confidence == 0.95:
-        if n >= 30:
-            t_val = 1.96
-        elif n >= 15:
-            t_val = 2.13
-        elif n >= 10:
-            t_val = 2.26
-        elif n >= 5:
-            t_val = 2.78
-        else:
-            t_val = 4.30  # n=2 的 t 值
-    elif confidence == 0.99:
-        t_val = 2.576 if n >= 30 else 3.50
-    else:
-        # 默认用 z=1.96
-        t_val = 1.96
-
-    margin = t_val * std_err
-    return (mean - margin, mean + margin)
 
 
 def significance_test(
     data_a: list[float],
     data_b: list[float],
 ) -> dict[str, Any]:
-    """简单的双样本 t 检验 (Welch's t-test).
+    """Welch's t 检验 (向后兼容包装器).
 
-    不依赖 scipy，使用手动计算。
+    新代码应使用 agenttrainer.eval.stats.welch_t_test()。
 
     Args:
         data_a: 样本 A 的数据
@@ -105,59 +64,12 @@ def significance_test(
     Returns:
         {"t_statistic": float, "p_approx": str, "significant": bool, "effect_size": float}
     """
-    n_a, n_b = len(data_a), len(data_b)
-    if n_a < 2 or n_b < 2:
-        return {
-            "t_statistic": 0.0,
-            "p_approx": "insufficient_data",
-            "significant": False,
-            "effect_size": 0.0,
-        }
-
-    mean_a = statistics.mean(data_a)
-    mean_b = statistics.mean(data_b)
-    var_a = statistics.variance(data_a)
-    var_b = statistics.variance(data_b)
-
-    # Welch's t-test
-    se = math.sqrt(var_a / n_a + var_b / n_b)
-    if se < 1e-10:
-        return {
-            "t_statistic": 0.0,
-            "p_approx": "identical",
-            "significant": False,
-            "effect_size": 0.0,
-        }
-
-    t_stat = (mean_a - mean_b) / se
-
-    # Cohen's d (effect size)
-    pooled_std = math.sqrt((var_a + var_b) / 2)
-    effect_size = abs(mean_a - mean_b) / pooled_std if pooled_std > 1e-10 else 0.0
-
-    # p 值近似 (不依赖 scipy)
-    abs_t = abs(t_stat)
-    if abs_t > 3.5:
-        p_approx = "p<0.001"
-        significant = True
-    elif abs_t > 2.5:
-        p_approx = "p<0.01"
-        significant = True
-    elif abs_t > 2.0:
-        p_approx = "p<0.05"
-        significant = True
-    elif abs_t > 1.5:
-        p_approx = "p<0.15"
-        significant = False
-    else:
-        p_approx = "p>0.15"
-        significant = False
-
+    result = welch_t_test(data_a, data_b)
     return {
-        "t_statistic": round(t_stat, 4),
-        "p_approx": p_approx,
-        "significant": significant,
-        "effect_size": round(effect_size, 4),
+        "t_statistic": result.statistic,
+        "p_approx": result.p_value_approx,
+        "significant": result.significant,
+        "effect_size": result.effect_size,
     }
 
 
@@ -304,6 +216,7 @@ def compare_agents(
     max_steps: int = 30,
     reward_fn: Callable[[list[dict], dict], float] | None = None,
     tasks: list[Any] | None = None,
+    multiple_testing_correction: bool = True,
 ) -> dict[str, dict[str, Any]]:
     """对比多个 agent 在同一环境上的表现.
 
@@ -315,9 +228,13 @@ def compare_agents(
         max_steps: 每轮最大步数
         reward_fn: 可选的 reward 函数
         tasks: 共享任务列表（确保公平对比）
+        multiple_testing_correction: 是否应用 Bonferroni 校正 (>2 agents 时)
 
     Returns:
-        {agent_name: evaluate_agent 结果} 字典
+        {agent_name: evaluate_agent 结果} 字典，额外包含:
+        - ``_leaderboard``: 按 avg_reward 排序的排行榜
+        - ``_comparisons``: 两两显著性检验结果
+        - ``_corrected``: 校正后显著性 (>2 agents 且启用校正时)
     """
     results: dict[str, dict[str, Any]] = {}
 
@@ -333,36 +250,66 @@ def compare_agents(
             tasks=tasks,
         )
 
-    # 添加对比摘要 + 显著性检验
-    if len(results) > 1:
-        best_agent = max(results, key=lambda k: results[k]["success_rate"])
+    if len(results) <= 1:
+        return results
+
+    # Leaderboard (按 avg_reward 降序)
+    agent_names = [k for k in results if not k.startswith("_")]
+    ranked = sorted(agent_names, key=lambda k: results[k]["avg_reward"], reverse=True)
+    results["_leaderboard"] = [  # type: ignore[assignment]
+        {
+            "rank": i + 1,
+            "agent": name,
+            "success_rate": results[name]["success_rate"],
+            "avg_reward": results[name]["avg_reward"],
+            "avg_steps": results[name]["avg_steps"],
+        }
+        for i, name in enumerate(ranked)
+    ]
+
+    best_agent = ranked[0]
+    logger.info(
+        "最佳 agent: %s (success=%.1f%%, reward=%.3f)",
+        best_agent,
+        results[best_agent]["success_rate"] * 100,
+        results[best_agent]["avg_reward"],
+    )
+
+    # 两两显著性检验 (reward)
+    comparisons: dict[str, dict[str, Any]] = {}
+    p_values_list: list[str] = []
+    comparison_keys: list[str] = []
+
+    for i in range(len(agent_names)):
+        for j in range(i + 1, len(agent_names)):
+            a, b = agent_names[i], agent_names[j]
+            rewards_a = [e["total_reward"] for e in results[a]["episodes"]]
+            rewards_b = [e["total_reward"] for e in results[b]["episodes"]]
+            test_result = significance_test(rewards_a, rewards_b)
+            key = f"{a}_vs_{b}"
+            comparisons[key] = test_result
+            p_values_list.append(test_result["p_approx"])
+            comparison_keys.append(key)
+            logger.info(
+                "  %s vs %s: t=%.3f, %s, effect_size=%.3f",
+                a, b,
+                test_result["t_statistic"],
+                test_result["p_approx"],
+                test_result["effect_size"],
+            )
+
+    results["_comparisons"] = comparisons  # type: ignore[assignment]
+
+    # Bonferroni 校正 (>2 agents 时)
+    if multiple_testing_correction and len(agent_names) > 2 and p_values_list:
+        corrected = bonferroni_correct(p_values_list)
+        corrected_dict = dict(zip(comparison_keys, corrected))
+        results["_corrected"] = corrected_dict  # type: ignore[assignment]
         logger.info(
-            "最佳 agent: %s (success=%.1f%%, reward=%.3f)",
-            best_agent,
-            results[best_agent]["success_rate"] * 100,
-            results[best_agent]["avg_reward"],
+            "多重比较校正 (Bonferroni): %d/%d 对比显著 (α=0.05)",
+            sum(corrected),
+            len(corrected),
         )
-
-        # 两两显著性检验 (reward)
-        names = list(results.keys())
-        comparisons: dict[str, dict[str, Any]] = {}
-        for i in range(len(names)):
-            for j in range(i + 1, len(names)):
-                a, b = names[i], names[j]
-                rewards_a = [e["total_reward"] for e in results[a]["episodes"]]
-                rewards_b = [e["total_reward"] for e in results[b]["episodes"]]
-                test_result = significance_test(rewards_a, rewards_b)
-                key = f"{a}_vs_{b}"
-                comparisons[key] = test_result
-                logger.info(
-                    "  %s vs %s: t=%.3f, %s, effect_size=%.3f",
-                    a, b,
-                    test_result["t_statistic"],
-                    test_result["p_approx"],
-                    test_result["effect_size"],
-                )
-
-        results["_comparisons"] = comparisons  # type: ignore[assignment]
 
     return results
 

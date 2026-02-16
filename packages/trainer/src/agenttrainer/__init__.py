@@ -10,6 +10,7 @@ __version__ = "0.1.0"
 from agenttrainer.config import TrainConfig, SFTConfig, DPOConfig, GRPOConfig
 from agenttrainer.inference import AgentInference, parse_action
 from agenttrainer.eval.agent_eval import evaluate_agent, compare_agents
+from agenttrainer.eval.report import format_evaluation_report, format_comparison_report
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
@@ -22,5 +23,7 @@ __all__ = [
     "parse_action",
     "evaluate_agent",
     "compare_agents",
+    "format_evaluation_report",
+    "format_comparison_report",
     "__version__",
 ]
