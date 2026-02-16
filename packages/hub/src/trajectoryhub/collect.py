@@ -159,32 +159,6 @@ def make_reward_fn(
     return reward_fn
 
 
-def _collect_single(
-    env_id: str,
-    agent_fn: Callable[[str], dict[str, Any]],
-    n_episodes: int,
-    max_steps: int,
-    agent_name: str,
-    model_name: str,
-    task: Any,
-    reward_fn: Callable[[list[dict[str, Any]], dict[str, Any]], float] | None,
-) -> list[dict[str, Any]]:
-    """单进程收集（用于 collect_parallel 的 worker）."""
-    env = _make_env(env_id) if _HAS_CORE_ENV else None
-    if env is None:
-        return []
-    return collect(
-        env,
-        agent=agent_fn,
-        n_episodes=n_episodes,
-        max_steps=max_steps,
-        agent_name=agent_name,
-        model_name=model_name,
-        task=task,
-        reward_fn=reward_fn,
-    )
-
-
 def collect_parallel(
     env_id: str,
     agent_factory: Callable[[], Callable[[str], dict[str, Any]]],

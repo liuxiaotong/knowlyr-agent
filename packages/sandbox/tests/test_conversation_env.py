@@ -1,6 +1,5 @@
 """测试 ConversationEnv — 对话类 Agent 环境."""
 
-import pytest
 
 from knowlyrcore.env import AgentEnv
 from knowlyrcore.timestep import TimeStep
@@ -325,7 +324,7 @@ class TestRegistryIntegration:
     """测试环境注册和 make() 创建."""
 
     def test_make_conversation(self):
-        from knowlyrcore.registry import make, list_envs
+        from knowlyrcore.registry import make
 
         env = make("knowlyr/conversation")
         assert isinstance(env, ConversationEnv)

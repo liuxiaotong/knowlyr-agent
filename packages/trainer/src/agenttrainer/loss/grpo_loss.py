@@ -53,10 +53,16 @@ def compute_step_weighted_advantages(
     result = []
     for i, rewards_per_step in enumerate(step_rewards):
         if not rewards_per_step:
-            result.append(torch.tensor([trajectory_advantages[i].item()]))
+            result.append(torch.tensor(
+                [trajectory_advantages[i].item()],
+                device=trajectory_advantages.device,
+            ))
             continue
 
-        step_r = torch.tensor(rewards_per_step, dtype=torch.float32)
+        step_r = torch.tensor(
+            rewards_per_step, dtype=torch.float32,
+            device=trajectory_advantages.device,
+        )
         mean_r = step_r.mean()
         if mean_r.abs() < eps:
             # 步骤 reward 全为 0 或接近 0，不加权

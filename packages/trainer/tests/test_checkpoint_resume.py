@@ -1,11 +1,9 @@
 """测试 checkpoint 恢复功能 — load_training_state + _maybe_resume."""
 
-from pathlib import Path
 
-import pytest
 import torch
 
-from agenttrainer.models.checkpoint import load_training_state, save_checkpoint
+from agenttrainer.models.checkpoint import load_training_state
 
 
 # ── load_training_state 测试 ─────────────────────────────────────

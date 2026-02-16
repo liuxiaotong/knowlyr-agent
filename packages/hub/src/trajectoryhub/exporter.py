@@ -742,7 +742,7 @@ If you use this dataset, please cite:
         # 长度统计
         length_stats: Dict[str, Any] = {}
         if response_lengths:
-            over_limit = sum(1 for l in response_lengths if l > max_length * 4)
+            over_limit = sum(1 for ln in response_lengths if ln > max_length * 4)
             length_stats = {
                 "min": min(response_lengths),
                 "max": max(response_lengths),

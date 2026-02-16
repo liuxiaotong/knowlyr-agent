@@ -201,3 +201,99 @@ class RecorderWrapper(EnvWrapper):
                 "domain": self.env.domain,
             },
         }
+
+
+class EpisodeStatisticsWrapper(EnvWrapper):
+    """追踪 episode 统计 — 总 reward、步数、耗时.
+
+    episode 结束时（terminated 或 truncated）在 info 中注入统计信息。
+    借鉴 Gymnasium ``RecordEpisodeStatistics`` Wrapper。
+
+    Usage::
+
+        env = EpisodeStatisticsWrapper(env)
+        ts = env.reset()
+        while not ts.done:
+            ts = env.step(action)
+        stats = ts.info["episode"]
+        # {"r": 3.5, "l": 10, "t": 15.2}
+    """
+
+    def __init__(self, env: AgentEnv):
+        super().__init__(env)
+        self._episode_reward: float = 0.0
+        self._episode_length: int = 0
+        self._episode_start: float = 0.0
+
+    def reset(self, **kwargs: Any) -> TimeStep:
+        """重置统计计数器."""
+        self._episode_reward = 0.0
+        self._episode_length = 0
+        self._episode_start = time.monotonic()
+        return self.env.reset(**kwargs)
+
+    def step(self, action: dict[str, Any]) -> TimeStep:
+        """执行一步，累计统计."""
+        ts = self.env.step(action)
+        self._episode_reward += ts.reward
+        self._episode_length += 1
+
+        if ts.terminated or ts.truncated:
+            elapsed = time.monotonic() - self._episode_start
+            ts.info["episode"] = {
+                "r": round(self._episode_reward, 4),
+                "l": self._episode_length,
+                "t": round(elapsed, 2),
+            }
+
+        return ts
+
+    @property
+    def episode_reward(self) -> float:
+        """当前 episode 累计 reward."""
+        return self._episode_reward
+
+    @property
+    def episode_length(self) -> int:
+        """当前 episode 步数."""
+        return self._episode_length
+
+
+class ObservationTruncateWrapper(EnvWrapper):
+    """截断过长 observation — 防止 LLM agent 上下文溢出.
+
+    当 observation 超过 max_chars 时，截断并附加 suffix 提示。
+
+    Usage::
+
+        env = ObservationTruncateWrapper(env, max_chars=4000)
+        ts = env.step(action)
+        assert len(ts.observation) <= 4000 + len("...[truncated]")
+    """
+
+    def __init__(
+        self,
+        env: AgentEnv,
+        max_chars: int = 8000,
+        suffix: str = "...[truncated]",
+    ):
+        super().__init__(env)
+        self._max_chars = max_chars
+        self._suffix = suffix
+
+    def reset(self, **kwargs: Any) -> TimeStep:
+        """重置并截断初始 observation."""
+        ts = self.env.reset(**kwargs)
+        return self._truncate(ts)
+
+    def step(self, action: dict[str, Any]) -> TimeStep:
+        """执行一步并截断 observation."""
+        ts = self.env.step(action)
+        return self._truncate(ts)
+
+    def _truncate(self, ts: TimeStep) -> TimeStep:
+        """如果 observation 超长则截断."""
+        if len(ts.observation) > self._max_chars:
+            ts.observation = ts.observation[: self._max_chars] + self._suffix
+            ts.info["observation_truncated"] = True
+        return ts

@@ -60,6 +60,7 @@ class _AgentSFTDataset(Dataset):
         max_length: int,
         mask_observations: bool = True,
         step_weighted_loss: bool = False,
+        chunk_overlap: int = 1,
     ) -> None:
         from agenttrainer.data.agent_format import (
             parse_trajectory,
@@ -98,7 +99,8 @@ class _AgentSFTDataset(Dataset):
 
             # 长轨迹分块
             chunks = chunk_trajectory(
-                instruction, input_text, steps, tokenizer, max_length
+                instruction, input_text, steps, tokenizer, max_length,
+                overlap_steps=chunk_overlap,
             )
 
             for chunk in chunks:
@@ -158,6 +160,15 @@ class SFTTrainer(BaseTrainer):
         super().__init__(config)
         self.config: SFTConfig = config
 
+    def _eval_step(self, model, ref_model, batch) -> float:
+        """SFT eval: 计算 cross-entropy loss."""
+        outputs = model(
+            input_ids=batch["input_ids"],
+            attention_mask=batch["attention_mask"],
+            labels=batch["labels"],
+        )
+        return outputs.loss.item()
+
     def _train_loop(self) -> None:
         # 加载模型
         model, tokenizer = load_model(
@@ -176,17 +187,42 @@ class SFTTrainer(BaseTrainer):
         # 加载数据
         records = read_sft(self.config.train_file)
 
+        chunk_overlap = self.config.chunk_overlap if self.config.chunk_long_trajectories else 1
+
         if self.config.agent_format:
             dataset = _AgentSFTDataset(
                 records, tokenizer, self.config.max_length,
                 mask_observations=self.config.mask_observations,
                 step_weighted_loss=self.config.step_weighted_loss,
+                chunk_overlap=chunk_overlap,
             )
             logger.info("Agent 模式: %d 训练样本（含分块）", len(dataset))
         else:
             dataset = _SFTDataset(records, tokenizer, self.config.max_length)
 
         collator = SFTCollator(tokenizer, self.config.max_length)
+
+        # 验证集（如果有）
+        eval_loader = None
+        if self.config.eval_file:
+            eval_records = read_sft(self.config.eval_file)
+            if self.config.agent_format:
+                eval_dataset = _AgentSFTDataset(
+                    eval_records, tokenizer, self.config.max_length,
+                    mask_observations=self.config.mask_observations,
+                    step_weighted_loss=False,
+                    chunk_overlap=chunk_overlap,
+                )
+            else:
+                eval_dataset = _SFTDataset(eval_records, tokenizer, self.config.max_length)
+            eval_loader = DataLoader(
+                eval_dataset,
+                batch_size=self.config.batch_size,
+                shuffle=False,
+                collate_fn=collator,
+                num_workers=0,
+            )
+            logger.info("验证集: %d 条数据", len(eval_dataset))
 
         # Curriculum learning 采样器
         sampler = None
@@ -305,6 +341,15 @@ class SFTTrainer(BaseTrainer):
 
             avg_loss = epoch_loss / max(len(loader), 1)
             logger.info("Epoch %d 完成, avg_loss=%.4f", epoch + 1, avg_loss)
+
+            # 验证评估
+            if eval_loader is not None:
+                self._run_eval(
+                    model, None, eval_loader, epoch + 1, global_step,
+                    tokenizer=tokenizer,
+                )
+                if self._should_stop:
+                    break
 
         # 保存最终模型
         self._save_final(model, tokenizer)

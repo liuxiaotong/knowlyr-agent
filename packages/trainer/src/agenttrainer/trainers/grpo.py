@@ -19,7 +19,11 @@ from agenttrainer.data.reader import read_grpo_groups
 from agenttrainer.data.formatter import format_grpo
 from agenttrainer.data.collator import GRPOCollator
 from agenttrainer.loss import compute_sequence_log_probs
-from agenttrainer.loss.grpo_loss import compute_group_advantages, grpo_loss
+from agenttrainer.loss.grpo_loss import (
+    compute_group_advantages,
+    compute_step_weighted_advantages,
+    grpo_loss,
+)
 from agenttrainer.models.loader import load_model
 from agenttrainer.trainers.base import BaseTrainer
 
@@ -53,6 +57,9 @@ class _GRPOGroupDataset(Dataset):
                 max_length=self.max_length,
             )
             formatted["reward"] = traj.get("reward", 0.0)
+            # 传递步骤级 reward（用于 step_level_advantage）
+            if "step_rewards" in traj:
+                formatted["step_rewards"] = traj["step_rewards"]
             items.append(formatted)
         return items
 
@@ -81,6 +88,31 @@ class GRPOTrainer(BaseTrainer):
         super().__init__(config)
         self.config: GRPOConfig = config
         self.generate_fn = generate_fn  # Phase 2 接口
+
+    def _eval_step(self, model, ref_model, batch) -> float:
+        """GRPO eval: 计算单 group 的 GRPO loss."""
+        log_probs = compute_sequence_log_probs(
+            model,
+            batch["input_ids"],
+            batch["labels"],
+            batch["attention_mask"],
+        )
+        old_log_probs = compute_sequence_log_probs(
+            ref_model,
+            batch["input_ids"],
+            batch["labels"],
+            batch["attention_mask"],
+        )
+        rewards = batch["rewards"].to(log_probs.device)
+        advantages = compute_group_advantages(rewards)
+        loss, _ = grpo_loss(
+            log_probs,
+            old_log_probs,
+            advantages,
+            clip_epsilon=self.config.clip_epsilon,
+            kl_coef=self.config.kl_coef,
+        )
+        return loss.item()
 
     def _train_loop(self) -> None:
         # 加载模型
@@ -118,18 +150,35 @@ class GRPOTrainer(BaseTrainer):
             num_workers=0,
         )
 
+        # 验证集（如果有）
+        eval_loader = None
+        if self.config.eval_file:
+            eval_groups = read_grpo_groups(self.config.eval_file)
+            eval_dataset = _GRPOGroupDataset(
+                eval_groups, tokenizer, self.config.max_length,
+            )
+            eval_loader = DataLoader(
+                eval_dataset,
+                batch_size=1,
+                shuffle=False,
+                collate_fn=_grpo_collate_fn,
+                num_workers=0,
+            )
+            logger.info("验证集: %d 组", len(eval_dataset))
+
         # 优化器 & 调度器
         total_steps = len(loader) * self.config.num_epochs // self.config.gradient_accumulation_steps
         optimizer = self._build_optimizer(model)
         scheduler = self._build_scheduler(optimizer, max(total_steps, 1))
 
-        logger.info(
-            "开始 GRPO 训练 (离线模式): %d 组, clip=%.2f, kl_coef=%.3f",
-            len(dataset), self.config.clip_epsilon, self.config.kl_coef,
-        )
+        # 恢复训练状态
+        global_step = self._maybe_resume(optimizer, scheduler)
 
-        # 训练循环
-        global_step = 0
+        logger.info(
+            "开始 GRPO 训练 (离线模式): %d 组, clip=%.2f, kl_coef=%.3f%s",
+            len(dataset), self.config.clip_epsilon, self.config.kl_coef,
+            f" (从 step {global_step} 恢复)" if global_step > 0 else "",
+        )
         model.train()
 
         for epoch in range(self.config.num_epochs):
@@ -167,6 +216,19 @@ class GRPOTrainer(BaseTrainer):
                     # 计算 group advantages
                     rewards = group_batch["rewards"].to(self.device)
                     advantages = compute_group_advantages(rewards)
+
+                    # 步骤级 advantage（如果启用）
+                    if (
+                        self.config.step_level_advantage
+                        and "step_rewards" in group_batch
+                    ):
+                        step_advs = compute_step_weighted_advantages(
+                            advantages, group_batch["step_rewards"],
+                        )
+                        advantages = torch.tensor(
+                            [sa.mean().item() for sa in step_advs],
+                            device=self.device,
+                        )
 
                     # GRPO loss
                     loss, metrics = grpo_loss(
@@ -208,6 +270,51 @@ class GRPOTrainer(BaseTrainer):
                 pbar.set_postfix(loss=f"{loss.item() * self.config.gradient_accumulation_steps:.4f}")
 
             logger.info("Epoch %d 完成", epoch + 1)
+
+            # 验证评估（GRPO eval 需要 collator 处理 group）
+            if eval_loader is not None:
+                # GRPO eval: 将 group_items 通过 collator 转为 batch 后评估
+                model.eval()
+                total_eval_loss = 0.0
+                n_eval = 0
+                with torch.no_grad():
+                    for eval_group_items in eval_loader:
+                        if len(eval_group_items) < 2:
+                            continue
+                        eval_batch = collator_fn(eval_group_items)
+                        eval_batch = {
+                            k: v.to(self.device) if isinstance(v, torch.Tensor) else v
+                            for k, v in eval_batch.items()
+                        }
+                        with self._maybe_autocast():
+                            eval_loss = self._eval_step(model, ref_model, eval_batch)
+                        total_eval_loss += eval_loss
+                        n_eval += 1
+                model.train()
+                avg_eval = total_eval_loss / max(n_eval, 1)
+                self._log({"eval_loss": avg_eval, "epoch": epoch + 1}, global_step)
+                logger.info("Eval epoch %d: loss=%.4f", epoch + 1, avg_eval)
+
+                # Best model saving + early stopping
+                if avg_eval < self._best_eval_loss:
+                    self._best_eval_loss = avg_eval
+                    self._patience_counter = 0
+                    if self.config.save_best_model:
+                        self._save_best(model, tokenizer)
+                        logger.info("新最优模型: eval_loss=%.4f", avg_eval)
+                else:
+                    self._patience_counter += 1
+
+                patience = self.config.early_stopping_patience
+                if patience is not None and self._patience_counter >= patience:
+                    self._should_stop = True
+                    logger.info(
+                        "Early stopping: eval_loss 连续 %d 个 epoch 未改善",
+                        patience,
+                    )
+
+                if self._should_stop:
+                    break
 
         self._save_final(model, tokenizer)
         logger.info("GRPO 训练完成")

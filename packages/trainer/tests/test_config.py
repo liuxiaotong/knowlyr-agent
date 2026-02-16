@@ -109,7 +109,7 @@ class TestTrainConfig:
         assert config.mask_observations is True
         assert config.step_weighted_loss is False
         assert config.chunk_long_trajectories is False
-        assert config.chunk_overlap == 128
+        assert config.chunk_overlap == 1
 
     def test_wandb_fields(self):
         """wandb 字段默认应为 None."""
@@ -124,6 +124,21 @@ class TestTrainConfig:
 
         config2 = TrainConfig(resume_from_checkpoint="./ckpt/step-500")
         assert config2.resume_from_checkpoint == "./ckpt/step-500"
+
+    def test_early_stopping_defaults(self):
+        """early stopping 默认应为禁用."""
+        config = TrainConfig()
+        assert config.early_stopping_patience is None
+        assert config.save_best_model is False
+
+    def test_early_stopping_custom(self):
+        """自定义 early stopping 参数应生效."""
+        config = TrainConfig(
+            early_stopping_patience=3,
+            save_best_model=True,
+        )
+        assert config.early_stopping_patience == 3
+        assert config.save_best_model is True
 
 
 # ── SFTConfig ─────────────────────────────────────────────────────

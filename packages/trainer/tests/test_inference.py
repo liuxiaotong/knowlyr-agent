@@ -1,8 +1,6 @@
 """测试推理桥 — parse_action + AgentInference."""
 
-import json
 
-import pytest
 
 from agenttrainer.inference import (
     AgentInference,
@@ -189,7 +187,6 @@ class TestAgentInference:
 
     def test_create_agent_maintains_history(self):
         """agent 函数应维护对话历史."""
-        from unittest.mock import MagicMock, patch
 
         inference = self._make_mock_inference()
 

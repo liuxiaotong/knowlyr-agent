@@ -21,6 +21,7 @@ from knowlyrcore.domain import (
 )
 from knowlyrcore.env import AgentEnv, EnvWrapper
 from knowlyrcore.models import TaskInfo, ToolResult
+from knowlyrcore.wrappers import EpisodeStatisticsWrapper, ObservationTruncateWrapper  # noqa: E501
 from knowlyrcore.registry import (
     EnvSpec,
     list_envs,
@@ -50,6 +51,9 @@ __all__ = [
     "AgentEnv",
     "EnvWrapper",
     "TimeStep",
+    # Wrappers
+    "EpisodeStatisticsWrapper",
+    "ObservationTruncateWrapper",
     # 注册表
     "EnvSpec",
     "register",

@@ -408,5 +408,156 @@ def publish(
         sys.exit(1)
 
 
+@main.command("evaluate")
+@click.option("--env", "env_id", type=str, required=True, help="环境 ID (如 knowlyr/conversation)")
+@click.option("--model", "model_path", type=str, default=None, help="模型 checkpoint 路径")
+@click.option("-n", "--n-episodes", type=int, default=10, help="评估轮数 (默认: 10)")
+@click.option("--max-steps", type=int, default=30, help="每轮最大步数 (默认: 30)")
+@click.option("--domain", type=str, default="conversation", help="领域 (默认: conversation)")
+@click.option("--system-prompt", type=str, default="", help="System prompt")
+@click.option("-o", "--output", type=click.Path(), default=None, help="保存评估报告 (JSON)")
+def evaluate(
+    env_id: str,
+    model_path: Optional[str],
+    n_episodes: int,
+    max_steps: int,
+    domain: str,
+    system_prompt: str,
+    output: Optional[str],
+):
+    """评估 Agent 在环境中的表现
+
+    使用 evaluate_agent() 运行 agent 并计算成功率、reward 分布等指标。
+
+    例：knowlyr-hub evaluate --env knowlyr/conversation --model ./checkpoint/final -n 20
+    """
+    try:
+        from trajectoryhub.evaluate import evaluate_agent
+    except RuntimeError as e:
+        click.echo(f"依赖缺失: {e}", err=True)
+        sys.exit(1)
+
+    click.echo("评估 Agent...")
+    click.echo(f"  环境: {env_id}")
+    click.echo(f"  模型: {model_path or '(需提供 --model)'}")
+    click.echo(f"  轮数: {n_episodes}")
+
+    if not model_path:
+        click.echo("错误: 请通过 --model 指定模型路径", err=True)
+        sys.exit(1)
+
+    # 创建 reward_fn
+    try:
+        from trajectoryhub.collect import make_reward_fn
+        reward_fn = make_reward_fn(domain=domain)
+    except RuntimeError:
+        reward_fn = None
+
+    result = evaluate_agent(
+        model_path=model_path,
+        env_id=env_id,
+        n_episodes=n_episodes,
+        max_steps=max_steps,
+        system_prompt=system_prompt,
+        reward_fn=reward_fn,
+    )
+
+    # 展示结果
+    click.echo("")
+    click.echo("评估结果:")
+    click.echo(f"  成功率:     {result['success_rate']:.1%}")
+    click.echo(f"  平均 Reward: {result['avg_reward']:.3f} ± {result.get('std_reward', 0):.3f}")
+    click.echo(f"  平均步数:   {result['avg_steps']:.1f}")
+    click.echo(f"  Reward 范围: [{result['min_reward']:.3f}, {result['max_reward']:.3f}]")
+
+    dist = result.get("reward_distribution", {})
+    if dist:
+        click.echo(f"  Reward 分布: {dict(dist)}")
+
+    if output:
+        out_path = Path(output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        # 移除 episodes 详情以减小文件体积
+        save_result = {k: v for k, v in result.items() if k != "episodes"}
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(save_result, f, ensure_ascii=False, indent=2, default=str)
+        click.echo(f"\n报告已保存: {output}")
+
+
+@main.command("online")
+@click.option("--model", "model_path", type=str, default="", help="HuggingFace 模型名或本地 checkpoint")
+@click.option("--env", "env_id", type=str, default="knowlyr/conversation", help="环境 ID")
+@click.option("--domain", type=str, default="conversation", help="领域")
+@click.option("-n", "--n-iterations", type=int, default=3, help="训练循环次数 (默认: 3)")
+@click.option("--n-episodes", type=int, default=10, help="每轮收集轨迹数 (默认: 10)")
+@click.option("--max-steps", type=int, default=20, help="每条轨迹最大步数 (默认: 20)")
+@click.option("-o", "--output", type=click.Path(), default="./output/online_loop", help="输出目录")
+@click.option("--patience", type=int, default=0, help="早停耐心值 (0=不使用)")
+@click.option("--eval-episodes", type=int, default=0, help="每轮评估轮数 (0=不评估)")
+def online(
+    model_path: str,
+    env_id: str,
+    domain: str,
+    n_iterations: int,
+    n_episodes: int,
+    max_steps: int,
+    output: str,
+    patience: int,
+    eval_episodes: int,
+):
+    """在线训练循环: Model → Collect → Reward → Train
+
+    打通模型训练全闭环。每次迭代：收集轨迹 → 导出 SFT 数据 → 训练 → (评估)。
+
+    例：knowlyr-hub online --model Qwen/Qwen2.5-Coder-7B --env knowlyr/engineering -n 5
+    """
+    import logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    )
+
+    from trajectoryhub.online import online_training_loop
+
+    click.echo("在线训练循环")
+    click.echo(f"  模型: {model_path or '(未指定)'}")
+    click.echo(f"  环境: {env_id}")
+    click.echo(f"  领域: {domain}")
+    click.echo(f"  迭代: {n_iterations}")
+    click.echo(f"  轨迹/轮: {n_episodes}")
+    if eval_episodes > 0:
+        click.echo(f"  评估/轮: {eval_episodes}")
+    click.echo("")
+
+    if not model_path:
+        click.echo("错误: 请通过 --model 指定模型路径", err=True)
+        sys.exit(1)
+
+    results = online_training_loop(
+        model_path=model_path,
+        env_id=env_id,
+        domain=domain,
+        n_iterations=n_iterations,
+        n_episodes=n_episodes,
+        max_steps=max_steps,
+        output_dir=output,
+        patience=patience,
+        eval_episodes=eval_episodes,
+    )
+
+    # 汇总
+    click.echo("")
+    click.echo("训练循环完成:")
+    for s in results:
+        eval_info = ""
+        if s.eval_avg_reward is not None:
+            eval_info = f" | eval_reward={s.eval_avg_reward:.3f}"
+        click.echo(
+            f"  Iter {s.iteration}: success={s.success_rate:.1%}, "
+            f"reward={s.avg_reward:.3f}, steps={s.avg_steps:.1f}{eval_info}"
+        )
+    click.echo(f"\n输出目录: {output}")
+
+
 if __name__ == "__main__":
     main()

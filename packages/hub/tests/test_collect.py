@@ -334,6 +334,62 @@ class TestCollectParallel:
 
         _clear_registry()
 
+    def test_parallel_worker_error_graceful(self):
+        """worker 异常时应跳过失败、返回其他 worker 的结果."""
+        from knowlyrcore.registry import register, _clear_registry
+
+        _clear_registry()
+        register("test/mock-error", MockEnv, domain="test")
+
+        call_count = [0]
+
+        def flaky_agent_factory():
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # 第一个 worker 的 agent 抛异常
+                def bad_agent(obs):
+                    raise RuntimeError("模拟 worker 崩溃")
+                return bad_agent
+            return StatefulAgent(submit_after=1)
+
+        trajs = collect_parallel(
+            "test/mock-error",
+            agent_factory=flaky_agent_factory,
+            n_episodes=4,
+            max_steps=10,
+            n_workers=2,
+        )
+
+        # 至少有一部分成功的轨迹（第二个 worker 的）
+        assert len(trajs) >= 1
+        for traj in trajs:
+            assert traj["outcome"]["success"] is True
+
+        _clear_registry()
+
+    def test_parallel_all_workers_fail(self):
+        """所有 worker 都失败时应返回空列表."""
+        from knowlyrcore.registry import register, _clear_registry
+
+        _clear_registry()
+        register("test/mock-allfail", MockEnv, domain="test")
+
+        def failing_agent_factory():
+            def bad_agent(obs):
+                raise RuntimeError("always fail")
+            return bad_agent
+
+        trajs = collect_parallel(
+            "test/mock-allfail",
+            agent_factory=failing_agent_factory,
+            n_episodes=4,
+            max_steps=10,
+            n_workers=2,
+        )
+
+        assert len(trajs) == 0
+        _clear_registry()
+
     def test_parallel_agent_name_has_worker_id(self):
         """每个 worker 的 agent_name 应包含 worker ID."""
         from knowlyrcore.registry import register, _clear_registry

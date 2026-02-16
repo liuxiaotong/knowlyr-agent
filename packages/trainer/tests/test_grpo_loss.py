@@ -102,3 +102,35 @@ class TestStepWeightedAdvantages:
         result = compute_step_weighted_advantages(traj_advantages, step_rewards)
         assert len(result) == 1
         assert result[0][0].item() == pytest.approx(1.5, abs=0.01)
+
+    def test_single_step(self):
+        """单步轨迹应退化为轨迹级 advantage."""
+        traj_advantages = torch.tensor([2.0])
+        step_rewards = [[0.8]]
+        result = compute_step_weighted_advantages(traj_advantages, step_rewards)
+        assert len(result[0]) == 1
+        # 单步: weight = 0.8 / 0.8 = 1.0, advantage = 2.0 * 1.0 = 2.0
+        assert result[0][0].item() == pytest.approx(2.0, abs=0.1)
+
+    def test_zero_step_rewards(self):
+        """全 0 步骤 reward 时应均匀加权."""
+        traj_advantages = torch.tensor([1.0])
+        step_rewards = [[0.0, 0.0, 0.0]]
+        result = compute_step_weighted_advantages(traj_advantages, step_rewards)
+        assert len(result[0]) == 3
+        # mean_r 接近 0，应回退到均匀权重
+        assert torch.allclose(result[0], torch.tensor([1.0, 1.0, 1.0]), atol=0.1)
+
+    def test_multiple_trajectories(self):
+        """多条轨迹的步骤数可以不同."""
+        traj_advantages = torch.tensor([1.0, -0.5, 0.3])
+        step_rewards = [
+            [0.4, 0.6],        # 2 步
+            [0.2, 0.3, 0.5],   # 3 步
+            [0.9],              # 1 步
+        ]
+        result = compute_step_weighted_advantages(traj_advantages, step_rewards)
+        assert len(result) == 3
+        assert len(result[0]) == 2
+        assert len(result[1]) == 3
+        assert len(result[2]) == 1

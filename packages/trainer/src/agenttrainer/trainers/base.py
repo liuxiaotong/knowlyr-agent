@@ -30,6 +30,10 @@ class BaseTrainer(ABC):
         self.device = self._resolve_device()
         self.rank = 0
         self.world_size = 1
+        # Early stopping / best model 追踪
+        self._best_eval_loss: float = float("inf")
+        self._patience_counter: int = 0
+        self._should_stop: bool = False
 
     def train(self) -> None:
         """运行完整训练流程."""
@@ -109,6 +113,16 @@ class BaseTrainer(ABC):
         if is_main_process():
             save_final(model, tokenizer, self.config.output_dir)
 
+    def _save_best(self, model: Any, tokenizer: Any) -> None:
+        """保存验证 loss 最优的模型到 {output_dir}/best."""
+        import os
+        best_dir = os.path.join(self.config.output_dir, "best")
+        os.makedirs(best_dir, exist_ok=True)
+        model.save_pretrained(best_dir)
+        if tokenizer is not None:
+            tokenizer.save_pretrained(best_dir)
+        logger.info("Best model 已保存至 %s", best_dir)
+
     def _maybe_resume(
         self,
         optimizer: AdamW,
@@ -140,6 +154,87 @@ class BaseTrainer(ABC):
         global_step = state.get("global_step", 0)
         logger.info("从 checkpoint 恢复: step=%d, path=%s", global_step, ckpt_path)
         return global_step
+
+    def _eval_step(self, model: Any, ref_model: Any, batch: dict[str, Any]) -> float:
+        """计算单 batch 的 eval loss.
+
+        子类实现具体计算逻辑。SFT 忽略 ref_model (传 None)，
+        DPO/GRPO 使用 ref_model 计算参考策略 log probs。
+
+        Args:
+            model: 当前策略模型
+            ref_model: 参考模型（可能为 None）
+            batch: 已移至 device 的 batch dict
+
+        Returns:
+            loss 标量值
+        """
+        raise NotImplementedError("子类需实现 _eval_step")
+
+    def _run_eval(
+        self,
+        model: Any,
+        ref_model: Any,
+        eval_loader: Any,
+        epoch: int,
+        global_step: int,
+        tokenizer: Any = None,
+    ) -> float:
+        """通用验证评估循环.
+
+        在验证集上计算平均 loss 并记录。支持 early stopping 和 best model saving。
+
+        Args:
+            model: 当前策略模型
+            ref_model: 参考模型（SFT 传 None）
+            eval_loader: 验证 DataLoader
+            epoch: 当前 epoch
+            global_step: 当前训练步数
+            tokenizer: 分词器（save_best_model 时需要）
+
+        Returns:
+            平均验证 loss
+        """
+        model.eval()
+        total_loss = 0.0
+        n_batches = 0
+
+        with torch.no_grad():
+            for batch in eval_loader:
+                batch = {
+                    k: v.to(self.device) if isinstance(v, torch.Tensor) else v
+                    for k, v in batch.items()
+                }
+                with self._maybe_autocast():
+                    loss = self._eval_step(model, ref_model, batch)
+                total_loss += loss
+                n_batches += 1
+
+        model.train()
+        avg_loss = total_loss / max(n_batches, 1)
+        self._log({"eval_loss": avg_loss, "epoch": epoch}, global_step)
+        logger.info("Eval epoch %d: loss=%.4f", epoch, avg_loss)
+
+        # Best model saving
+        if avg_loss < self._best_eval_loss:
+            self._best_eval_loss = avg_loss
+            self._patience_counter = 0
+            if self.config.save_best_model and is_main_process():
+                self._save_best(model, tokenizer)
+                logger.info("新最优模型: eval_loss=%.4f", avg_loss)
+        else:
+            self._patience_counter += 1
+
+        # Early stopping 检查
+        patience = self.config.early_stopping_patience
+        if patience is not None and self._patience_counter >= patience:
+            self._should_stop = True
+            logger.info(
+                "Early stopping: eval_loss 连续 %d 个 epoch 未改善 (best=%.4f)",
+                patience, self._best_eval_loss,
+            )
+
+        return avg_loss
 
     def _resolve_device(self) -> torch.device:
         """确定训练设备."""

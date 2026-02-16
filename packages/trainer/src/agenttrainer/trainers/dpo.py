@@ -50,6 +50,42 @@ class DPOTrainer(BaseTrainer):
         super().__init__(config)
         self.config: DPOConfig = config
 
+    def _eval_step(self, model, ref_model, batch) -> float:
+        """DPO eval: 计算 DPO loss."""
+        policy_chosen_logps = compute_sequence_log_probs(
+            model,
+            batch["input_ids_chosen"],
+            batch["labels_chosen"],
+            batch["attention_mask_chosen"],
+        )
+        policy_rejected_logps = compute_sequence_log_probs(
+            model,
+            batch["input_ids_rejected"],
+            batch["labels_rejected"],
+            batch["attention_mask_rejected"],
+        )
+        ref_chosen_logps = compute_sequence_log_probs(
+            ref_model,
+            batch["input_ids_chosen"],
+            batch["labels_chosen"],
+            batch["attention_mask_chosen"],
+        )
+        ref_rejected_logps = compute_sequence_log_probs(
+            ref_model,
+            batch["input_ids_rejected"],
+            batch["labels_rejected"],
+            batch["attention_mask_rejected"],
+        )
+        loss, _, _ = dpo_loss(
+            policy_chosen_logps,
+            policy_rejected_logps,
+            ref_chosen_logps,
+            ref_rejected_logps,
+            beta=self.config.beta,
+            label_smoothing=self.config.label_smoothing,
+        )
+        return loss.item()
+
     def _train_loop(self) -> None:
         # 加载策略模型
         model, tokenizer = load_model(
@@ -84,6 +120,20 @@ class DPOTrainer(BaseTrainer):
             num_workers=0,
         )
 
+        # 验证集（如果有）
+        eval_loader = None
+        if self.config.eval_file:
+            eval_records = read_dpo(self.config.eval_file)
+            eval_dataset = _DPODataset(eval_records, tokenizer, self.config.max_length)
+            eval_loader = DataLoader(
+                eval_dataset,
+                batch_size=self.config.batch_size,
+                shuffle=False,
+                collate_fn=collator,
+                num_workers=0,
+            )
+            logger.info("验证集: %d 条偏好对", len(eval_dataset))
+
         # 优化器 & 调度器
         total_steps = (
             len(loader) * self.config.num_epochs // self.config.gradient_accumulation_steps
@@ -91,13 +141,14 @@ class DPOTrainer(BaseTrainer):
         optimizer = self._build_optimizer(model)
         scheduler = self._build_scheduler(optimizer, total_steps)
 
-        logger.info(
-            "开始 DPO 训练: %d 条偏好对, beta=%.2f, %d total steps",
-            len(dataset), self.config.beta, total_steps,
-        )
+        # 恢复训练状态
+        global_step = self._maybe_resume(optimizer, scheduler)
 
-        # 训练循环
-        global_step = 0
+        logger.info(
+            "开始 DPO 训练: %d 条偏好对, beta=%.2f, %d total steps%s",
+            len(dataset), self.config.beta, total_steps,
+            f" (从 step {global_step} 恢复)" if global_step > 0 else "",
+        )
         model.train()
 
         for epoch in range(self.config.num_epochs):
@@ -177,6 +228,15 @@ class DPOTrainer(BaseTrainer):
                 pbar.set_postfix(loss=f"{loss.item() * self.config.gradient_accumulation_steps:.4f}")
 
             logger.info("Epoch %d 完成", epoch + 1)
+
+            # 验证评估
+            if eval_loader is not None:
+                self._run_eval(
+                    model, ref_model, eval_loader, epoch + 1, global_step,
+                    tokenizer=tokenizer,
+                )
+                if self._should_stop:
+                    break
 
         self._save_final(model, tokenizer)
         logger.info("DPO 训练完成")

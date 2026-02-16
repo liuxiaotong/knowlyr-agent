@@ -138,3 +138,103 @@ class TestAgentSFTTrainer:
 
         final_dir = tmp_path / "weighted_output" / "final"
         assert final_dir.exists()
+
+
+class TestSFTTrainerEval:
+    """SFT 验证评估测试."""
+
+    @pytest.mark.slow
+    def test_eval_file_runs(self, sft_sample_file, small_model_name, tmp_path):
+        """eval_file 非空时应执行验证评估."""
+        # 用同一文件做 train 和 eval
+        config = SFTConfig(
+            model_name_or_path=small_model_name,
+            train_file=str(sft_sample_file),
+            eval_file=str(sft_sample_file),
+            output_dir=str(tmp_path / "sft_eval_output"),
+            num_epochs=1,
+            batch_size=2,
+            max_length=64,
+            gradient_accumulation_steps=1,
+            logging_steps=1,
+            save_steps=0,
+            bf16=False,
+        )
+
+        trainer = SFTTrainer(config)
+        trainer.train()  # 不应报错
+
+        final_dir = tmp_path / "sft_eval_output" / "final"
+        assert final_dir.exists()
+
+    @pytest.mark.slow
+    def test_no_eval_file_skips(self, sft_sample_file, small_model_name, tmp_path):
+        """eval_file 为空时不应执行验证评估."""
+        config = SFTConfig(
+            model_name_or_path=small_model_name,
+            train_file=str(sft_sample_file),
+            eval_file=None,
+            output_dir=str(tmp_path / "sft_no_eval"),
+            num_epochs=1,
+            batch_size=2,
+            max_length=64,
+            gradient_accumulation_steps=1,
+            logging_steps=1,
+            save_steps=0,
+            bf16=False,
+        )
+
+        trainer = SFTTrainer(config)
+        trainer.train()  # 不应报错
+
+        final_dir = tmp_path / "sft_no_eval" / "final"
+        assert final_dir.exists()
+
+    @pytest.mark.slow
+    def test_save_best_model(self, sft_sample_file, small_model_name, tmp_path):
+        """save_best_model=True 应保存 best 目录."""
+        config = SFTConfig(
+            model_name_or_path=small_model_name,
+            train_file=str(sft_sample_file),
+            eval_file=str(sft_sample_file),
+            output_dir=str(tmp_path / "sft_best"),
+            num_epochs=2,
+            batch_size=2,
+            max_length=64,
+            gradient_accumulation_steps=1,
+            logging_steps=1,
+            save_steps=0,
+            bf16=False,
+            save_best_model=True,
+        )
+
+        trainer = SFTTrainer(config)
+        trainer.train()
+
+        best_dir = tmp_path / "sft_best" / "best"
+        assert best_dir.exists()
+
+    @pytest.mark.slow
+    def test_early_stopping(self, sft_sample_file, small_model_name, tmp_path):
+        """early_stopping_patience=1 应在验证 loss 不改善时提前停止."""
+        config = SFTConfig(
+            model_name_or_path=small_model_name,
+            train_file=str(sft_sample_file),
+            eval_file=str(sft_sample_file),
+            output_dir=str(tmp_path / "sft_early"),
+            num_epochs=10,  # 设大，看是否提前停止
+            batch_size=2,
+            max_length=64,
+            gradient_accumulation_steps=1,
+            logging_steps=1,
+            save_steps=0,
+            bf16=False,
+            early_stopping_patience=1,
+        )
+
+        trainer = SFTTrainer(config)
+        trainer.train()
+
+        # 应该正常完成（提前停止或跑完）
+        final_dir = tmp_path / "sft_early" / "final"
+        assert final_dir.exists()

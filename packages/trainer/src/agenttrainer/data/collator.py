@@ -78,7 +78,7 @@ class GRPOCollator:
     tokenizer: PreTrainedTokenizer
     max_length: int = 2048
 
-    def __call__(self, batch: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
+    def __call__(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
         """batch 是一组轨迹，每条有 input_ids, labels, attention_mask, reward."""
         input_ids = [item["input_ids"][:self.max_length] for item in batch]
         labels = [item["labels"][:self.max_length] for item in batch]
@@ -88,12 +88,19 @@ class GRPOCollator:
         labels = _pad_sequence(labels, -100)
         attention_mask = (input_ids != self.tokenizer.pad_token_id).long()
 
-        return {
+        result: dict[str, Any] = {
             "input_ids": input_ids,
             "labels": labels,
             "attention_mask": attention_mask,
             "rewards": rewards,
         }
+
+        # 传递 step_rewards（如果存在，用于 step_level_advantage）
+        step_rewards = [item.get("step_rewards") for item in batch]
+        if all(sr is not None for sr in step_rewards):
+            result["step_rewards"] = step_rewards
+
+        return result
 
 
 # ── 内部辅助 ──────────────────────────────────────────────

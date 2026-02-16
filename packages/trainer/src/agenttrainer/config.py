@@ -68,6 +68,11 @@ class TrainConfig(BaseModel):
     # 恢复训练 — 从 checkpoint 目录继续 (包含 training_state.pt)
     resume_from_checkpoint: str | None = None
 
+    # Early stopping — 验证 loss 连续 N 个 epoch 不改善则停止（需配合 eval_file）
+    early_stopping_patience: int | None = None
+    # 保存验证 loss 最优的模型到 {output_dir}/best
+    save_best_model: bool = False
+
     # wandb (需要 knowlyr-trainer[wandb])
     wandb_project: str | None = None
     wandb_run_name: str | None = None
@@ -89,7 +94,7 @@ class TrainConfig(BaseModel):
 
     # ── 长轨迹分块 ──────────────────────────────────────
     chunk_long_trajectories: bool = False
-    chunk_overlap: int = 128  # 块之间重叠的 token 数
+    chunk_overlap: int = 1  # 块之间重叠的步骤数（chunk_long_trajectories=True 时生效）
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "TrainConfig":
