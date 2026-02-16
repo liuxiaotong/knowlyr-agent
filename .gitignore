@@ -27,6 +27,9 @@ htmlcov/
 # Claude Code
 CLAUDE.md
 
+# Docs
+site/
+
 # OS
 .DS_Store
 Thumbs.db

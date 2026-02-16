@@ -1,4 +1,4 @@
-.PHONY: test test-core test-sandbox test-recorder test-reward test-hub test-trainer test-integration lint build clean
+.PHONY: test test-core test-sandbox test-recorder test-reward test-hub test-trainer test-integration lint build clean docs docs-serve
 
 PACKAGES = core sandbox recorder reward hub trainer
 
@@ -53,6 +53,13 @@ install-dev:
 		echo "\n=== Installing $$pkg (editable) ==="; \
 		cd packages/$$pkg && pip install -e ".[dev]" && cd ../..; \
 	done
+
+# 文档
+docs:
+	mkdocs build
+
+docs-serve:
+	mkdocs serve
 
 # 清理构建产物
 clean:
