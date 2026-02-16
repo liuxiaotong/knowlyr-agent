@@ -8,6 +8,7 @@ import logging
 __version__ = "0.1.0"
 
 from agenttrainer.config import TrainConfig, SFTConfig, DPOConfig, GRPOConfig
+from agenttrainer.inference import AgentInference, parse_action
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
@@ -16,5 +17,7 @@ __all__ = [
     "SFTConfig",
     "DPOConfig",
     "GRPOConfig",
+    "AgentInference",
+    "parse_action",
     "__version__",
 ]

@@ -165,3 +165,67 @@ class TestCollect:
 
         assert len(trajs) == 1
         _clear_registry()
+
+
+# ── reward_fn 测试 ─────────────────────────────────────────────
+
+
+class TestCollectWithReward:
+    """collect() 带 reward_fn 参数的测试."""
+
+    def test_no_reward_fn_backward_compat(self):
+        """不传 reward_fn 时行为不变，reward 为 0.0."""
+        agent = StatefulAgent(submit_after=2)
+        trajs = collect(MockEnv(), agent=agent, n_episodes=1, max_steps=10)
+
+        for step in trajs[0]["steps"]:
+            assert step["reward"] == 0.0
+
+    def test_reward_fn_injected(self):
+        """传入 reward_fn 时每步 reward 非零."""
+        def constant_reward(steps, action):
+            return 0.42
+
+        agent = StatefulAgent(submit_after=3)
+        trajs = collect(
+            MockEnv(), agent=agent, n_episodes=1, max_steps=10,
+            reward_fn=constant_reward,
+        )
+
+        traj = trajs[0]
+        assert len(traj["steps"]) == 3
+        for step in traj["steps"]:
+            assert step["reward"] == 0.42
+
+    def test_reward_fn_step_dependent(self):
+        """reward_fn 可以依赖步骤历史."""
+        def progressive_reward(steps, action):
+            return len(steps) * 0.1
+
+        agent = StatefulAgent(submit_after=3)
+        trajs = collect(
+            MockEnv(), agent=agent, n_episodes=1, max_steps=10,
+            reward_fn=progressive_reward,
+        )
+
+        rewards = [s["reward"] for s in trajs[0]["steps"]]
+        assert abs(rewards[0] - 0.1) < 1e-6
+        assert abs(rewards[1] - 0.2) < 1e-6
+        assert abs(rewards[2] - 0.3) < 1e-6
+
+    def test_reward_fn_multiple_episodes(self):
+        """多 episode 时 reward 应正确重置."""
+        def step_count_reward(steps, action):
+            return float(len(steps))
+
+        agent = StatefulAgent(submit_after=2)
+        trajs = collect(
+            MockEnv(), agent=agent, n_episodes=2, max_steps=10,
+            reward_fn=step_count_reward,
+        )
+
+        # 每个 episode 的 reward 应从 1 开始
+        for traj in trajs:
+            rewards = [s["reward"] for s in traj["steps"]]
+            assert abs(rewards[0] - 1.0) < 1e-6
+            assert abs(rewards[1] - 2.0) < 1e-6
