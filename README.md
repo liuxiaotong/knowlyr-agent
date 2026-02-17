@@ -351,8 +351,8 @@ knowlyr-agent 是 [knowlyr 数据工程生态](https://github.com/liuxiaotong) �
 | Production | **DataLabel** | knowlyr-datalabel | Lightweight annotation |
 | Quality | **DataCheck** | knowlyr-datacheck | Data quality validation |
 | Audit | **ModelAudit** | knowlyr-modelaudit | Distillation detection & model fingerprint |
-| Orchestration | **Crew** | knowlyr-crew | Digital workforce management |
-| **RL Framework** | **knowlyr-agent** | core/sandbox/recorder/reward/hub/trainer | **You are here** |
+| 协作 | **Crew** | knowlyr-crew | AI 员工引擎 · MCP 互通 · 多智能体协商 |
+| **Agent 训练** | **knowlyr-agent** | core/sandbox/recorder/reward/hub/trainer | **You are here** |
 
 ## References
 
