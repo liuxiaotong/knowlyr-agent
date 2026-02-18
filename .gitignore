@@ -26,6 +26,10 @@ htmlcov/
 
 # Claude Code
 CLAUDE.md
+.claude/
+
+# Data
+data/
 
 # Docs
 site/
