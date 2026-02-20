@@ -11,7 +11,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![CI](https://github.com/liuxiaotong/knowlyr-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/liuxiaotong/knowlyr-agent/actions/workflows/ci.yml)
 <br/>
-[![Tests](https://img.shields.io/badge/tests-699_passed-brightgreen.svg)](#development)
+[![Tests](https://img.shields.io/badge/tests-771_passed-brightgreen.svg)](#development)
 [![Packages](https://img.shields.io/badge/packages-6-orange.svg)](#components)
 [![Environments](https://img.shields.io/badge/environments-5_registered-purple.svg)](#environments)
 [![Domains](https://img.shields.io/badge/domains-7_builtin-red.svg)](#domain-profiles)
@@ -106,7 +106,7 @@ graph LR
 | **Environment** | SandboxEnv · ConversationEnv · Docker 沙箱 | 5 个注册环境，coding / conversation / engineering / advisory / discussion |
 | **Trajectory** | AgentRecorder · 适配器注册表 | Agent 日志解析，多格式适配（OpenHands / SWE-agent / 自定义），标准化轨迹 |
 | **Reward** | RewardEngine · Rubric · PreferenceBuilder | 三层 PRM + 多维度 Rubric 评分 + 偏好对构建 |
-| **Data** | collect() · DatasetExporter · Pipeline | Rollout 采样，SFT / DPO / GRPO 格式导出，端到端管线编排 |
+| **Data** | collect() · DatasetExporter · Pipeline · CAS · GDI | Rollout 采样，SFT / DPO / GRPO 格式导出，CAS 内容寻址去重，GDI 质量排名，端到端管线编排 |
 | **Training** | SFTTrainer · DPOTrainer · GRPOTrainer | 三种策略优化 + 6 项 Agent 增强 + 评估与统计检验 |
 | **Inference** | AgentInference · Checkpoint | 推理桥：checkpoint 加载 → create_agent() → collect → train 闭环 |
 
@@ -269,12 +269,12 @@ graph LR
 
 | Package | RL Role | Description | Tests |
 |---------|---------|-------------|-------|
-| [**knowlyr-core**](packages/core/) | MDP Protocol | `AgentEnv` · `TimeStep` · `EnvWrapper` · `Registry` · `DomainProfile` | 96 |
+| [**knowlyr-core**](packages/core/) | MDP Protocol | `AgentEnv` · `TimeStep` · `EnvWrapper` · `Registry` · `DomainProfile` | 108 |
 | [**knowlyr-sandbox**](packages/sandbox/) | Environment | Docker 沙箱执行 · `SandboxEnv` · `ConversationEnv` | 101 |
 | [**knowlyr-recorder**](packages/recorder/) | Trajectory Buffer | Agent 日志解析 · 标准化轨迹 · 适配器注册表 | 62 |
 | [**knowlyr-reward**](packages/reward/) | Reward Model | 三层 PRM · Rubric 评分 · 偏好对构建 | 136 |
-| [**knowlyr-hub**](packages/hub/) | Rollout & Data | `collect()` 采样 · `DatasetExporter` · Pipeline 编排 | 92 |
-| [**knowlyr-trainer**](packages/trainer/) | Policy Optimization | SFT · DPO · GRPO · 评估 · 推理桥 | 195 |
+| [**knowlyr-hub**](packages/hub/) | Rollout & Data | `collect()` 采样 · `DatasetExporter` · Pipeline 编排 · CAS 去重 · GDI 排名 | 158 |
+| [**knowlyr-trainer**](packages/trainer/) | Policy Optimization | SFT · DPO · GRPO · 评估 · 推理桥 | 206 |
 
 各包独立安装、独立使用，无交叉依赖。Hub 通过可选依赖串联数据管线，Trainer 消费 Hub 导出的 JSONL。
 
@@ -385,7 +385,7 @@ git clone https://github.com/liuxiaotong/knowlyr-agent.git
 cd knowlyr-agent
 
 make install-dev        # 开发模式安装全部包
-make test               # 运行全部测试 (699 passed)
+make test               # 运行全部测试 (771 passed)
 make test-integration   # 跨包集成测试 (17 tests)
 make lint               # ruff check
 ```
