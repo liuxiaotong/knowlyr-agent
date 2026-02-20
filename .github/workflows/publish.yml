@@ -18,7 +18,7 @@ jobs:
       - name: Install all packages in dev mode
         run: |
           pip install -e "packages/core[dev]"
-          for pkg in sandbox recorder reward hub; do
+          for pkg in sandbox recorder reward hub trainer; do
             pip install -e "packages/$pkg[dev]"
           done
 
@@ -32,6 +32,7 @@ jobs:
           python -m pytest packages/recorder/tests/ -v
           python -m pytest packages/reward/tests/ -v
           python -m pytest packages/hub/tests/ -v
+          python -m pytest packages/trainer/tests/ -v
           python -m pytest tests/integration/ -v
 
   publish:
@@ -48,7 +49,7 @@ jobs:
 
       - name: Build all packages
         run: |
-          for pkg in core sandbox recorder reward hub; do
+          for pkg in core sandbox recorder reward hub trainer; do
             echo "=== Building $pkg ==="
             python -m build packages/$pkg/
           done
@@ -58,7 +59,7 @@ jobs:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
         run: |
-          for pkg in core sandbox recorder reward hub; do
+          for pkg in core sandbox recorder reward hub trainer; do
             echo "=== Publishing $pkg ==="
             twine upload packages/$pkg/dist/* --skip-existing
           done
