@@ -2,9 +2,15 @@
 
 import json
 
+import pytest
 from click.testing import CliRunner
 
 from trajectoryhub.cli import main
+from trajectoryhub.pipeline import _HAS_RECORDER
+
+_skip_no_recorder = pytest.mark.skipif(
+    not _HAS_RECORDER, reason="knowlyr-recorder 未安装",
+)
 
 
 def _write_openhands_log(path):
@@ -59,6 +65,7 @@ def _write_sweagent_log(path, task_desc="修复 Django bug"):
         json.dump(data, f)
 
 
+@_skip_no_recorder
 class TestProcessCommand:
     """测试 process 命令."""
 
@@ -121,6 +128,7 @@ class TestProcessCommand:
         assert records[0]["task_id"] == "cli-test"
 
 
+@_skip_no_recorder
 class TestProcessBatchCommand:
     """测试 process-batch 命令."""
 

@@ -1,7 +1,8 @@
 """测试 evaluate.py — Hub 层评估桥接."""
 
+import types
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -46,6 +47,33 @@ def _mock_agent(obs: str) -> dict[str, Any]:
     return {"tool": "submit", "params": {}}
 
 
+def _fake_trainer_modules(*, evaluate_return=None, compare_return=None):
+    """构造 fake agenttrainer 模块层级，无需实际安装 knowlyr-trainer.
+
+    Returns:
+        (modules_dict, mock_evaluate, mock_compare) 元组.
+    """
+    mock_evaluate = MagicMock(return_value=evaluate_return or {})
+    mock_compare = MagicMock(return_value=compare_return or {})
+
+    agent_eval = types.ModuleType("agenttrainer.eval.agent_eval")
+    agent_eval.evaluate_agent = mock_evaluate
+    agent_eval.compare_agents = mock_compare
+
+    eval_pkg = types.ModuleType("agenttrainer.eval")
+    eval_pkg.agent_eval = agent_eval
+
+    trainer_pkg = types.ModuleType("agenttrainer")
+    trainer_pkg.eval = eval_pkg
+
+    modules = {
+        "agenttrainer": trainer_pkg,
+        "agenttrainer.eval": eval_pkg,
+        "agenttrainer.eval.agent_eval": agent_eval,
+    }
+    return modules, mock_evaluate, mock_compare
+
+
 # ── evaluate_agent 测试 ──────────────────────────────────────────
 
 
@@ -59,11 +87,9 @@ class TestEvaluateAgent:
             "avg_reward": 0.5,
             "n_episodes": 5,
         }
+        modules, mock_eval, _ = _fake_trainer_modules(evaluate_return=mock_result)
 
-        with patch(
-            "agenttrainer.eval.agent_eval.evaluate_agent",
-            return_value=mock_result,
-        ) as mock_eval:
+        with patch.dict("sys.modules", modules):
             from trajectoryhub.evaluate import evaluate_agent
 
             result = evaluate_agent(
@@ -84,11 +110,9 @@ class TestEvaluateAgent:
     def test_with_model_path(self):
         """传入 model_path 应转发到底层."""
         mock_result = {"success_rate": 0.6, "avg_reward": 0.3}
+        modules, mock_eval, _ = _fake_trainer_modules(evaluate_return=mock_result)
 
-        with patch(
-            "agenttrainer.eval.agent_eval.evaluate_agent",
-            return_value=mock_result,
-        ) as mock_eval:
+        with patch.dict("sys.modules", modules):
             from trajectoryhub.evaluate import evaluate_agent
 
             evaluate_agent(
@@ -107,10 +131,11 @@ class TestEvaluateAgent:
         def my_reward(steps, action):
             return 0.5
 
-        with patch(
-            "agenttrainer.eval.agent_eval.evaluate_agent",
-            return_value={"success_rate": 0.5},
-        ) as mock_eval:
+        modules, mock_eval, _ = _fake_trainer_modules(
+            evaluate_return={"success_rate": 0.5},
+        )
+
+        with patch.dict("sys.modules", modules):
             from trajectoryhub.evaluate import evaluate_agent
 
             evaluate_agent(
@@ -125,11 +150,11 @@ class TestEvaluateAgent:
     def test_with_tasks(self):
         """tasks 参数应被传递."""
         tasks = [{"id": "t1"}, {"id": "t2"}]
+        modules, mock_eval, _ = _fake_trainer_modules(
+            evaluate_return={"success_rate": 0.5},
+        )
 
-        with patch(
-            "agenttrainer.eval.agent_eval.evaluate_agent",
-            return_value={"success_rate": 0.5},
-        ) as mock_eval:
+        with patch.dict("sys.modules", modules):
             from trajectoryhub.evaluate import evaluate_agent
 
             evaluate_agent(
@@ -143,25 +168,23 @@ class TestEvaluateAgent:
 
     def test_trainer_not_installed(self):
         """knowlyr-trainer 未安装时应抛 RuntimeError."""
-        with patch.dict("sys.modules", {"agenttrainer": None, "agenttrainer.eval": None,
-                                         "agenttrainer.eval.agent_eval": None}):
-            # 重新加载 evaluate 模块以触发 ImportError 路径
-            import importlib
-            import trajectoryhub.evaluate as eval_mod
-            importlib.reload(eval_mod)
+        with patch.dict("sys.modules", {
+            "agenttrainer": None,
+            "agenttrainer.eval": None,
+            "agenttrainer.eval.agent_eval": None,
+        }):
+            from trajectoryhub.evaluate import evaluate_agent
 
             with pytest.raises(RuntimeError, match="knowlyr-trainer"):
-                eval_mod.evaluate_agent(agent_fn=_mock_agent, env=_MockEnv())
-
-        # 恢复
-        importlib.reload(eval_mod)
+                evaluate_agent(agent_fn=_mock_agent, env=_MockEnv())
 
     def test_default_parameters(self):
         """默认参数应正确传递."""
-        with patch(
-            "agenttrainer.eval.agent_eval.evaluate_agent",
-            return_value={"success_rate": 0.0},
-        ) as mock_eval:
+        modules, mock_eval, _ = _fake_trainer_modules(
+            evaluate_return={"success_rate": 0.0},
+        )
+
+        with patch.dict("sys.modules", modules):
             from trajectoryhub.evaluate import evaluate_agent
 
             evaluate_agent(agent_fn=_mock_agent, env=_MockEnv())
@@ -192,11 +215,9 @@ class TestCompareAgents:
             "agent_a": {"success_rate": 0.8},
             "agent_b": {"success_rate": 0.6},
         }
+        modules, _, mock_compare = _fake_trainer_modules(compare_return=mock_result)
 
-        with patch(
-            "agenttrainer.eval.agent_eval.compare_agents",
-            return_value=mock_result,
-        ) as mock_compare:
+        with patch.dict("sys.modules", modules):
             from trajectoryhub.evaluate import compare_agents
 
             agents = {"agent_a": agent_a, "agent_b": agent_b}
@@ -214,10 +235,9 @@ class TestCompareAgents:
 
     def test_compare_with_env_id(self):
         """env_id 参数应被传递."""
-        with patch(
-            "agenttrainer.eval.agent_eval.compare_agents",
-            return_value={},
-        ) as mock_compare:
+        modules, _, mock_compare = _fake_trainer_modules(compare_return={})
+
+        with patch.dict("sys.modules", modules):
             from trajectoryhub.evaluate import compare_agents
 
             compare_agents(
@@ -232,13 +252,12 @@ class TestCompareAgents:
 
     def test_compare_trainer_not_installed(self):
         """knowlyr-trainer 未安装时应抛 RuntimeError."""
-        with patch.dict("sys.modules", {"agenttrainer": None, "agenttrainer.eval": None,
-                                         "agenttrainer.eval.agent_eval": None}):
-            import importlib
-            import trajectoryhub.evaluate as eval_mod
-            importlib.reload(eval_mod)
+        with patch.dict("sys.modules", {
+            "agenttrainer": None,
+            "agenttrainer.eval": None,
+            "agenttrainer.eval.agent_eval": None,
+        }):
+            from trajectoryhub.evaluate import compare_agents
 
             with pytest.raises(RuntimeError, match="knowlyr-trainer"):
-                eval_mod.compare_agents(agents={"a": _mock_agent}, env=_MockEnv())
-
-        importlib.reload(eval_mod)
+                compare_agents(agents={"a": _mock_agent}, env=_MockEnv())

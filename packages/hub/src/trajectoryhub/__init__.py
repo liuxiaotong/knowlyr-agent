@@ -9,7 +9,9 @@ __version__ = "0.1.0"
 
 from trajectoryhub.collect import collect, collect_parallel, make_reward_fn
 from trajectoryhub.pipeline import Pipeline, PipelineConfig, PipelineResult, Trajectory
+from trajectoryhub.cas import CAStore, content_hash
 from trajectoryhub.exporter import DatasetExporter
+from trajectoryhub.gdi import GDIScore, GDIScorer
 from trajectoryhub.inference import create_model_agent
 from trajectoryhub.online import IterationStats, online_training_loop
 from trajectoryhub.evaluate import evaluate_agent, compare_agents
@@ -17,6 +19,10 @@ from trajectoryhub.evaluate import evaluate_agent, compare_agents
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 __all__ = [
+    "CAStore",
+    "content_hash",
+    "GDIScore",
+    "GDIScorer",
     "Pipeline",
     "PipelineConfig",
     "PipelineResult",

@@ -49,16 +49,17 @@ class DatasetExporter:
     将 Pipeline 产出的轨迹和偏好对导出为各种训练格式。
 
     Usage:
+        # 从 JSONL 文件
         exporter = DatasetExporter(
             trajectories_dir="./output/trajectories.jsonl",
             preferences_dir="./output/preferences.jsonl",
         )
 
+        # 从 CAS 存储（按 GDI 排名导出）
+        exporter = DatasetExporter.from_store("./data/index.sqlite")
+
         # 导出 SFT 格式
         result = exporter.export_sft("./export/sft_train.jsonl")
-
-        # 导出 DPO 格式
-        result = exporter.export_dpo("./export/dpo_train.jsonl")
     """
 
     def __init__(
@@ -68,6 +69,35 @@ class DatasetExporter:
     ) -> None:
         self.trajectories_dir = Path(trajectories_dir)
         self.preferences_dir = Path(preferences_dir) if preferences_dir else None
+        self._store = None  # CAStore 实例（from_store 模式）
+
+    @classmethod
+    def from_store(
+        cls,
+        store_path: str,
+        *,
+        min_gdi: float = 0.0,
+        limit: int = 10000,
+    ) -> "DatasetExporter":
+        """从 CAS 存储创建导出器（按 GDI 排名）.
+
+        Args:
+            store_path: SQLite 存储路径.
+            min_gdi: 最低 GDI 阈值，低于此值的轨迹不导出.
+            limit: 最多导出条数.
+
+        Returns:
+            DatasetExporter 实例.
+        """
+        from trajectoryhub.cas import CAStore
+
+        instance = cls.__new__(cls)
+        instance.trajectories_dir = Path(store_path)
+        instance.preferences_dir = None
+        instance._store = CAStore(store_path)
+        instance._store_min_gdi = min_gdi
+        instance._store_limit = limit
+        return instance
 
     def export_sft(self, output_path: str) -> ExportResult:
         """导出为 SFT 训练格式.
@@ -601,7 +631,24 @@ If you use this dataset, please cite:
     # ------------------------------------------------------------------
 
     def _load_trajectories(self) -> List[Dict[str, Any]]:
-        """从 JSONL 文件加载轨迹."""
+        """从 JSONL 文件或 CAS 存储加载轨迹."""
+        # CAS 模式：按 GDI 排名读取
+        if self._store is not None:
+            rows = self._store.list(
+                order_by="gdi_score",
+                limit=getattr(self, "_store_limit", 10000),
+            )
+            min_gdi = getattr(self, "_store_min_gdi", 0.0)
+            records = [r for r in rows if r.get("gdi_score", 0) >= min_gdi]
+            # 引用计数 +1
+            for r in records:
+                h = r.get("content_hash", "")
+                if h:
+                    self._store.increment_export(h)
+            logger.info("CAS 加载 %d 条轨迹 (min_gdi=%.2f)", len(records), min_gdi)
+            return records
+
+        # JSONL 模式
         records = []
         if not self.trajectories_dir.exists():
             return records

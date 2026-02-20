@@ -4,10 +4,17 @@ import json
 from dataclasses import asdict
 from typing import Any, Callable
 
+import pytest
 from knowlyrcore.env import AgentEnv
 from knowlyrcore.timestep import TimeStep
 
 from trajectoryhub.online import IterationStats, online_training_loop, _compute_stats
+
+try:
+    import agenttrainer  # noqa: F401
+    _HAS_TRAINER = True
+except ImportError:
+    _HAS_TRAINER = False
 
 
 # ── Mock 组件 ─────────────────────────────────────────────────────
@@ -329,6 +336,7 @@ class TestOnlineTrainingLoop:
         assert eval_checkpoints[0] == "my-model"
         assert "iter-0" in eval_checkpoints[1]
 
+    @pytest.mark.skipif(not _HAS_TRAINER, reason="knowlyr-trainer 未安装")
     def test_eval_episodes_builtin(self, tmp_path):
         """eval_episodes > 0 应使用内置 evaluate_agent."""
         results = online_training_loop(

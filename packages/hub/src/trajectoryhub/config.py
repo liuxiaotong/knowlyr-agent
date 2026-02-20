@@ -112,3 +112,4 @@ class PipelineConfig(BaseModel):
     checkpoint_interval: int = 10
     resume_from: Optional[str] = None
     domain: str = "coding"
+    store_path: Optional[str] = None  # SQLite CAS 存储路径，设置后自动启用内容寻址+GDI

@@ -80,6 +80,7 @@ class Trajectory:
     step_rewards: List[float] = field(default_factory=list)
     duration_seconds: float = 0.0
     metadata: Dict[str, Any] = field(default_factory=dict)
+    content_hash: str = ""
 
 
 @dataclass
@@ -192,7 +193,11 @@ class Pipeline:
         preferences_path = output_dir / "preferences.jsonl"
         self._build_preference_pairs(all_trajectories, preferences_path)
 
-        # Step 5: 运行质检
+        # Step 5: 存入 CAS + 计算 GDI（如果配置了 store_path）
+        if self.config.store_path:
+            self._store_and_score(all_trajectories)
+
+        # Step 6: 运行质检
         quality_report_path = output_dir / "quality_report.json"
         self._run_quality_check(trajectories_path, quality_report_path)
 
@@ -560,11 +565,17 @@ class Pipeline:
 
     def _save_trajectories(self, path: Path, trajectories: List[Trajectory]) -> None:
         """将轨迹列表保存为 JSONL."""
+        from trajectoryhub.cas import content_hash as _content_hash
+
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             for traj in trajectories:
+                # 计算 content_hash（如果还没有）
+                if not traj.content_hash:
+                    traj.content_hash = _content_hash(traj.steps)
                 line = json.dumps(
                     {
+                        "content_hash": traj.content_hash,
                         "task_id": traj.task_id,
                         "agent_framework": traj.agent_framework,
                         "agent_model": traj.agent_model,
@@ -601,6 +612,7 @@ class Pipeline:
                         step_rewards=data.get("step_rewards", []),
                         duration_seconds=data.get("duration_seconds", 0.0),
                         metadata=data.get("metadata", {}),
+                        content_hash=data.get("content_hash", ""),
                     )
                 )
         return trajectories
@@ -670,6 +682,44 @@ class Pipeline:
         report_path.parent.mkdir(parents=True, exist_ok=True)
         with open(report_path, "w", encoding="utf-8") as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
+
+    def _store_and_score(self, trajectories: List[Trajectory]) -> None:
+        """将轨迹存入 CAS 并计算 GDI 分数."""
+        from trajectoryhub.cas import CAStore
+        from trajectoryhub.gdi import GDIScorer
+
+        store_path = Path(self.config.store_path)  # type: ignore[arg-type]
+        store = CAStore(store_path)
+        scorer = GDIScorer()
+
+        try:
+            hashes = []
+            for traj in trajectories:
+                h = store.put(traj)
+                traj.content_hash = h
+                hashes.append(h)
+
+            # 批量计算 GDI
+            gdi_batch: Dict[str, float] = {}
+            for h in hashes:
+                row = store.get(h)
+                if row is None:
+                    continue
+                gdi = scorer.score(
+                    reward=row.get("reward", 0.0),
+                    export_count=row.get("export_count", 0),
+                    created_at=row.get("created_at"),
+                )
+                gdi_batch[h] = gdi.total
+
+            store.update_gdi_batch(gdi_batch)
+            stats = store.stats()
+            logger.info(
+                "CAS 存储完成: %d 条轨迹, 去重后 %d 条, 平均 GDI %.3f",
+                len(trajectories), stats["total_trajectories"], stats["avg_gdi"],
+            )
+        finally:
+            store.close()
 
     def _save_checkpoint(
         self,

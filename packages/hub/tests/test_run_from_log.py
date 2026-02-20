@@ -5,8 +5,12 @@ import json
 import pytest
 
 from trajectoryhub.config import PipelineConfig
-from trajectoryhub.pipeline import Pipeline, Trajectory
+from trajectoryhub.pipeline import Pipeline, Trajectory, _HAS_RECORDER, _HAS_REWARD
 from trajectoryhub.tasks import TaskInfo
+
+_skip_no_recorder = pytest.mark.skipif(
+    not _HAS_RECORDER, reason="knowlyr-recorder 未安装",
+)
 
 
 # ── 测试数据工厂 ───────────────────────────────────────────────────
@@ -80,6 +84,7 @@ def _write_sweagent_log(path, task_desc="修复 Django bug"):
 # ── run_from_log 测试 ──────────────────────────────────────────────
 
 
+@_skip_no_recorder
 class TestRunFromLog:
     """验证 run_from_log 完整流程."""
 
@@ -188,6 +193,7 @@ class TestRunFromLog:
 # ── run_batch_from_logs 测试 ───────────────────────────────────────
 
 
+@_skip_no_recorder
 class TestRunBatchFromLogs:
     """验证批量日志处理."""
 
@@ -224,16 +230,17 @@ class TestRunBatchFromLogs:
 class TestOptionalDeps:
     """验证可选依赖检测."""
 
+    @pytest.mark.skipif(not _HAS_RECORDER, reason="knowlyr-recorder 未安装")
     def test_has_recorder(self):
         """在开发环境中 recorder 应可用."""
-        from trajectoryhub.pipeline import _HAS_RECORDER
         assert _HAS_RECORDER is True
 
+    @pytest.mark.skipif(not _HAS_REWARD, reason="knowlyr-reward 未安装")
     def test_has_reward(self):
         """在开发环境中 reward 应可用."""
-        from trajectoryhub.pipeline import _HAS_REWARD
         assert _HAS_REWARD is True
 
+    @pytest.mark.skipif(not _HAS_RECORDER, reason="knowlyr-recorder 未安装")
     def test_adapter_registry_populated(self):
         """适配器注册表应包含 openhands 和 sweagent."""
         from agentrecorder.adapters import get_adapter, list_adapters
