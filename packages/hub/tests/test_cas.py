@@ -1,8 +1,5 @@
 """CAS 内容寻址存储测试."""
 
-import json
-from pathlib import Path
-
 import pytest
 
 from trajectoryhub.cas import CAStore, content_hash

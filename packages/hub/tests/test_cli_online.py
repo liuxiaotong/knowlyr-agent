@@ -1,6 +1,7 @@
 """测试 CLI evaluate / online 命令."""
 
 import json
+import sys
 from typing import Any
 from unittest.mock import patch
 
@@ -9,7 +10,10 @@ from click.testing import CliRunner
 from knowlyrcore.env import AgentEnv
 from knowlyrcore.timestep import TimeStep
 
+import trajectoryhub.collect  # noqa: F401 — 确保模块加载到 sys.modules
 from trajectoryhub.cli import main
+
+_collect_module = sys.modules["trajectoryhub.collect"]
 
 
 # ── Mock 组件 ─────────────────────────────────────────────────────
@@ -81,7 +85,7 @@ class TestEvaluateCommand:
         }
 
         with patch("trajectoryhub.evaluate.evaluate_agent", return_value=mock_result), \
-             patch("trajectoryhub.collect.make_reward_fn", return_value=lambda s, a: 0.5):
+             patch.object(_collect_module, "make_reward_fn", return_value=lambda s, a: 0.5):
             runner = CliRunner()
             out_file = tmp_path / "eval.json"
             result = runner.invoke(main, [
