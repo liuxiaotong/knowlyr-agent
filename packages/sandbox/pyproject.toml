@@ -45,10 +45,10 @@ knowlyr-sandbox = "agentsandbox.cli:main"
 knowlyr-sandbox = "agentsandbox.mcp_server:serve"
 
 [project.urls]
-Homepage = "https://github.com/liuxiaotong/knowlyr-agent"
-Documentation = "https://github.com/liuxiaotong/knowlyr-agent/tree/main/packages/sandbox"
-Repository = "https://github.com/liuxiaotong/knowlyr-agent"
-Issues = "https://github.com/liuxiaotong/knowlyr-agent/issues"
+Homepage = "https://github.com/liuxiaotong/knowlyr-gym"
+Documentation = "https://github.com/liuxiaotong/knowlyr-gym/tree/main/packages/sandbox"
+Repository = "https://github.com/liuxiaotong/knowlyr-gym"
+Issues = "https://github.com/liuxiaotong/knowlyr-gym/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agentsandbox"]

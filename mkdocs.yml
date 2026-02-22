@@ -1,8 +1,8 @@
-site_name: knowlyr-agent
+site_name: knowlyr-gym
 site_description: Agent 轨迹工具链 — 环境、录制、奖励、训练
-site_url: https://liuxiaotong.github.io/knowlyr-agent/
-repo_url: https://github.com/liuxiaotong/knowlyr-agent
-repo_name: liuxiaotong/knowlyr-agent
+site_url: https://liuxiaotong.github.io/knowlyr-gym/
+repo_url: https://github.com/liuxiaotong/knowlyr-gym
+repo_name: liuxiaotong/knowlyr-gym
 
 theme:
   name: material

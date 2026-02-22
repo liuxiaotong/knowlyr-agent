@@ -72,4 +72,4 @@ jobs:
         with:
           token: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}
           repository: liuxiaotong/knowlyr-crew
-          event-type: knowlyr-agent-released
+          event-type: knowlyr-gym-released

@@ -34,10 +34,10 @@ dependencies = [
 dev = ["pytest", "ruff"]
 
 [project.urls]
-Homepage = "https://github.com/liuxiaotong/knowlyr-agent"
-Documentation = "https://github.com/liuxiaotong/knowlyr-agent/tree/main/packages/core"
-Repository = "https://github.com/liuxiaotong/knowlyr-agent"
-Issues = "https://github.com/liuxiaotong/knowlyr-agent/issues"
+Homepage = "https://github.com/liuxiaotong/knowlyr-gym"
+Documentation = "https://github.com/liuxiaotong/knowlyr-gym/tree/main/packages/core"
+Repository = "https://github.com/liuxiaotong/knowlyr-gym"
+Issues = "https://github.com/liuxiaotong/knowlyr-gym/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/knowlyrcore"]

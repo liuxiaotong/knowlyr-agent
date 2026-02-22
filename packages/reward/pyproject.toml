@@ -45,10 +45,10 @@ knowlyr-reward = "agentreward.cli:main"
 knowlyr-reward = "agentreward.mcp_server:serve"
 
 [project.urls]
-Homepage = "https://github.com/liuxiaotong/knowlyr-agent"
-Documentation = "https://github.com/liuxiaotong/knowlyr-agent/tree/main/packages/reward"
-Repository = "https://github.com/liuxiaotong/knowlyr-agent"
-Issues = "https://github.com/liuxiaotong/knowlyr-agent/issues"
+Homepage = "https://github.com/liuxiaotong/knowlyr-gym"
+Documentation = "https://github.com/liuxiaotong/knowlyr-gym/tree/main/packages/reward"
+Repository = "https://github.com/liuxiaotong/knowlyr-gym"
+Issues = "https://github.com/liuxiaotong/knowlyr-gym/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agentreward"]

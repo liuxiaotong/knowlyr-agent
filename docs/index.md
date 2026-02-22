@@ -1,8 +1,8 @@
-# knowlyr-agent
+# knowlyr-gym
 
 **Agent 轨迹工具链 — 环境、录制、奖励、训练**
 
-knowlyr-agent 是一个 monorepo，包含 6 个独立 Python 包，覆盖 Agent 轨迹数据的完整生命周期：
+knowlyr-gym 是一个 monorepo，包含 6 个独立 Python 包，覆盖 Agent 轨迹数据的完整生命周期：
 
 ```
 环境执行 → 轨迹录制 → 奖励评分 → 数据编排 → 模型训练

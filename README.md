@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1>knowlyr-agent</h1>
+<h1>knowlyr-gym</h1>
 
 <h3>Gymnasium-Style Reinforcement Learning Framework<br/>for LLM Agent Training</h3>
 
@@ -9,7 +9,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![CI](https://github.com/liuxiaotong/knowlyr-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/liuxiaotong/knowlyr-agent/actions/workflows/ci.yml)
+[![CI](https://github.com/liuxiaotong/knowlyr-gym/actions/workflows/ci.yml/badge.svg)](https://github.com/liuxiaotong/knowlyr-gym/actions/workflows/ci.yml)
 <br/>
 [![Tests](https://img.shields.io/badge/tests-771_passed-brightgreen.svg)](#development)
 [![Packages](https://img.shields.io/badge/packages-6-orange.svg)](#components)
@@ -26,9 +26,9 @@
 
 ## Abstract
 
-knowlyr-agent 将 LLM tool-use agent 任务形式化为马尔可夫决策过程 $\langle \mathcal{S}, \mathcal{A}, T, R, \gamma \rangle$，在 Gymnasium 兼容的环境协议上构建完整的强化学习训练框架。系统核心是三层过程奖励模型（规则确定性检测 → LLM-as-Judge 语义评分 → 人工校准），为每个 action 计算步骤级即时奖励 $r_t = R(s_t, a_t)$，而非仅评估最终结果。基于 scored trajectories，训练管线支持 SFT（行为克隆）、DPO（偏好对齐）、GRPO（在线策略优化）三种策略优化方法，并提供 observation masking、step-weighted loss、curriculum learning 等 6 项 Agent 长程任务增强。通过领域无关的抽象层 `DomainProfile`，框架可泛化至 coding、browser、conversation、engineering、advisory、discussion 等任意 Agent 领域。
+knowlyr-gym 将 LLM tool-use agent 任务形式化为马尔可夫决策过程 $\langle \mathcal{S}, \mathcal{A}, T, R, \gamma \rangle$，在 Gymnasium 兼容的环境协议上构建完整的强化学习训练框架。系统核心是三层过程奖励模型（规则确定性检测 → LLM-as-Judge 语义评分 → 人工校准），为每个 action 计算步骤级即时奖励 $r_t = R(s_t, a_t)$，而非仅评估最终结果。基于 scored trajectories，训练管线支持 SFT（行为克隆）、DPO（偏好对齐）、GRPO（在线策略优化）三种策略优化方法，并提供 observation masking、step-weighted loss、curriculum learning 等 6 项 Agent 长程任务增强。通过领域无关的抽象层 `DomainProfile`，框架可泛化至 coding、browser、conversation、engineering、advisory、discussion 等任意 Agent 领域。
 
-> **knowlyr-agent** formalizes LLM tool-use agent tasks as Markov Decision Processes (MDPs) and provides a modular framework for environment interaction, process reward computation, and policy optimization. The system implements a Gymnasium-compatible environment protocol with composable wrappers, a three-layer Process Reward Model (rule-based + LLM-as-Judge + human calibration), and a complete training pipeline supporting SFT, DPO, and GRPO. Through a domain-agnostic abstraction layer (`DomainProfile`), it generalizes across coding, browser, conversation, and custom agent domains.
+> **knowlyr-gym** formalizes LLM tool-use agent tasks as Markov Decision Processes (MDPs) and provides a modular framework for environment interaction, process reward computation, and policy optimization. The system implements a Gymnasium-compatible environment protocol with composable wrappers, a three-layer Process Reward Model (rule-based + LLM-as-Judge + human calibration), and a complete training pipeline supporting SFT, DPO, and GRPO. Through a domain-agnostic abstraction layer (`DomainProfile`), it generalizes across coding, browser, conversation, and custom agent domains.
 
 ---
 
@@ -42,7 +42,7 @@ LLM Agent 训练面临三个结构性缺陷：缺少**标准化环境协议** (s
 | **奖励信号粗糙**<br/>Sparse Outcome Reward | 仅评估最终结果 $R_T$，中间步骤无信号 $\forall t < T: r_t = 0$ | SWE-bench 只看 patch 是否通过测试，无法区分"方向正确但未完成"与"完全跑偏" | 三层 PRM：规则层（$\sim$0 成本）→ LLM-as-Judge → 人工校准，步骤级 $r_t = R(s_t, a_t)$ |
 | **领域锁定**<br/>Domain Lock-in | 环境定义与特定领域强耦合，新领域需从零构建 | 多数框架仅支持 coding / browser，扩展新领域需改核心代码 | `DomainProfile` 声明式领域抽象：工具集、类别映射、评分维度权重，7 内置 + 自定义 |
 
-> knowlyr-agent 不是又一个 Agent 推理框架。它是 LLM Agent 的**训练基础设施**——"在哪练、怎么评、如何优化"，环境产出轨迹，奖励评估质量，训练器优化策略，三者通过标准化数据格式串联为闭环。
+> knowlyr-gym 不是又一个 Agent 推理框架。它是 LLM Agent 的**训练基础设施**——"在哪练、怎么评、如何优化"，环境产出轨迹，奖励评估质量，训练器优化策略，三者通过标准化数据格式串联为闭环。
 
 ---
 
@@ -116,7 +116,7 @@ graph LR
 
 ### 1. Gymnasium-Compatible Environment Protocol
 
-LLM Agent 环境缺乏统一接口——每个框架自行定义交互协议，环境复用成本高、Wrapper 不可组合。knowlyr-agent 实现完整的 Gymnasium 兼容协议，将 `reset()` / `step()` / `close()` 三方法模式扩展至 LLM 场景：
+LLM Agent 环境缺乏统一接口——每个框架自行定义交互协议，环境复用成本高、Wrapper 不可组合。knowlyr-gym 实现完整的 Gymnasium 兼容协议，将 `reset()` / `step()` / `close()` 三方法模式扩展至 LLM 场景：
 
 **5 个注册环境**：
 
@@ -381,8 +381,8 @@ pip install knowlyr-trainer[wandb]   # Weights & Biases logging
 ## Development
 
 ```bash
-git clone https://github.com/liuxiaotong/knowlyr-agent.git
-cd knowlyr-agent
+git clone https://github.com/liuxiaotong/knowlyr-gym.git
+cd knowlyr-gym
 
 make install-dev        # 开发模式安装全部包
 make test               # 运行全部测试 (771 passed)
@@ -435,7 +435,7 @@ graph LR
 | Audit | **ModelAudit** | 蒸馏检测、模型指纹 | [GitHub](https://github.com/liuxiaotong/model-audit) |
 | Deliberation | **Crew** | 对抗式多智能体协商 · 持久记忆进化 · MCP 原生 | [GitHub](https://github.com/liuxiaotong/knowlyr-crew) |
 | Identity | **knowlyr-id** | 身份系统 + AI 员工运行时 | [GitHub](https://github.com/liuxiaotong/knowlyr-id) |
-| Agent Training | **knowlyr-agent** | Gymnasium 风格 RL 框架 · 过程奖励模型 · SFT/DPO/GRPO | You are here |
+| Agent Training | **knowlyr-gym** | Gymnasium 风格 RL 框架 · 过程奖励模型 · SFT/DPO/GRPO | You are here |
 
 ---
 
