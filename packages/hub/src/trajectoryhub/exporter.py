@@ -139,21 +139,9 @@ class DatasetExporter:
 
             with open(output, "w", encoding="utf-8") as f:
                 for traj in successful:
-                    # 将步骤序列转为 response 文本
-                    response_parts = []
-                    for i, step in enumerate(traj.get("steps", []), 1):
-                        action = step.get("action", "")
-                        observation = step.get("observation", "")
-                        thought = step.get("thought", "")
-
-                        step_text = f"Step {i}:"
-                        if thought:
-                            step_text += f"\nThought: {thought}"
-                        if action:
-                            step_text += f"\nAction: {action}"
-                        if observation:
-                            step_text += f"\nObservation: {observation}"
-                        response_parts.append(step_text)
+                    # 将步骤序列转为 response 文本（复用 _steps_to_text）
+                    response_text = self._steps_to_text(traj.get("steps", []))
+                    response_parts = [response_text] if response_text else []
 
                     metadata = traj.get("metadata", {})
                     record = {
@@ -897,12 +885,41 @@ If you use this dataset, please cite:
         }
 
     def _steps_to_text(self, steps: List[Dict[str, Any]]) -> str:
-        """将步骤列表转为文本格式."""
+        """将步骤列表转为文本格式.
+
+        兼容两种字段约定:
+        - 标准 (recorder): action / observation
+        - Crew 轨迹:       tool_call.name+params / tool_result.output
+        - Hub 内部:        tool / params / output
+        """
         parts = []
         for i, step in enumerate(steps, 1):
-            action = step.get("action", "")
-            observation = step.get("observation", "")
             thought = step.get("thought", "")
+
+            # --- action ---
+            action = step.get("action", "")
+            if not action:
+                # hub 内部格式: tool + params
+                tool = step.get("tool", "")
+                if tool:
+                    params = step.get("params")
+                    action = f"{tool}({json.dumps(params, ensure_ascii=False)})" if params else tool
+            if not action:
+                # crew 轨迹格式: tool_call dict
+                tc = step.get("tool_call")
+                if isinstance(tc, dict):
+                    name = tc.get("name", "")
+                    params = tc.get("parameters")
+                    action = f"{name}({json.dumps(params, ensure_ascii=False)})" if params else name
+
+            # --- observation ---
+            observation = step.get("observation", "")
+            if not observation:
+                observation = step.get("output", "")
+            if not observation:
+                tr = step.get("tool_result")
+                if isinstance(tr, dict):
+                    observation = tr.get("output", "")
 
             step_text = f"Step {i}:"
             if thought:

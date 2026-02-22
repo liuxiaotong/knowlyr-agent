@@ -340,6 +340,75 @@ class Pipeline:
         logger.info("批量处理完成: %d 条轨迹", len(trajectories))
         return trajectories
 
+    def run_from_trajectories(
+        self,
+        jsonl_path: str | Path,
+    ) -> PipelineResult:
+        """从已标准化的 Trajectory JSONL 直接走评分 -> 导出管线.
+
+        适用于 Crew 等已经输出标准 Trajectory 格式的数据源，
+        跳过 adapter 解析步骤，直接加载 → 评分 → 偏好对 → CAS → 质检。
+
+        同一份 JSONL 跑两遍结果一样（幂等）。
+
+        Args:
+            jsonl_path: 标准 Trajectory JSONL 文件路径。
+
+        Returns:
+            PipelineResult: 执行结果汇总。
+        """
+        start_time = time.time()
+        jsonl_path = Path(jsonl_path)
+        output_dir = Path(self.config.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Step 1: 加载 JSONL
+        raw_trajectories = self._load_trajectories(jsonl_path)
+        logger.info("从 JSONL 加载 %d 条轨迹: %s", len(raw_trajectories), jsonl_path)
+
+        # Step 2: 逐条评分（如果 reward engine 可用且尚无 reward）
+        for traj in raw_trajectories:
+            if traj.reward != 0.0:
+                continue  # 已有评分，保持幂等
+            score = self._score_trajectory_from_hub(traj)
+            if score is not None:
+                traj.reward = score.total_score
+                traj.step_rewards = [sr.total_score for sr in score.step_rewards]
+
+        # Step 3: 保存带评分的轨迹
+        trajectories_path = output_dir / "trajectories.jsonl"
+        self._save_trajectories(trajectories_path, raw_trajectories)
+        logger.info("轨迹已保存: %s (%d 条)", trajectories_path, len(raw_trajectories))
+
+        # Step 4: 构建偏好对
+        preferences_path = output_dir / "preferences.jsonl"
+        self._build_preference_pairs(raw_trajectories, preferences_path)
+
+        # Step 5: CAS + GDI
+        if self.config.store_path:
+            self._store_and_score(raw_trajectories)
+
+        # Step 6: 质检
+        quality_report_path = output_dir / "quality_report.json"
+        self._run_quality_check(trajectories_path, quality_report_path)
+
+        duration = time.time() - start_time
+        completed = len(raw_trajectories)
+        logger.info(
+            "run_from_trajectories 完成: %d 条轨迹, 耗时 %.1fs",
+            completed, duration,
+        )
+
+        return PipelineResult(
+            total_tasks=completed,
+            completed=completed,
+            failed=0,
+            trajectories_path=str(trajectories_path),
+            preferences_path=str(preferences_path),
+            quality_report_path=str(quality_report_path),
+            duration_seconds=duration,
+        )
+
     def resume(self, checkpoint_path: str) -> PipelineResult:
         """从 checkpoint 恢复执行.
 
@@ -528,6 +597,62 @@ class Pipeline:
                 **recorder_traj.metadata,
             },
         )
+
+    def _score_trajectory_from_hub(self, traj: Trajectory) -> Optional[dict]:
+        """对已加载的 hub Trajectory 评分.
+
+        与 _score_trajectory (接受 recorder 格式) 不同，本方法接受
+        hub 内部的 Trajectory dataclass，从 steps dict 中提取字段。
+
+        Args:
+            traj: hub Trajectory dataclass
+
+        Returns:
+            RewardResult 或 None (reward 未安装时)
+        """
+        if not _HAS_REWARD:
+            logger.debug("knowlyr-reward 未安装，跳过评分")
+            return None
+
+        profile = None
+        if _HAS_CORE_DOMAIN:
+            domain = self.config.domain or "coding"
+            profile = get_domain_profile(domain)
+
+        engine = RewardEngine(profile=profile)
+
+        steps = []
+        for step in traj.steps:
+            # 兼容 hub 内部格式 (tool/params/output) 和 crew 格式 (tool_call/tool_result)
+            tool = step.get("tool", "")
+            params = step.get("params", {})
+            output = step.get("output", "")
+
+            if not tool:
+                tc = step.get("tool_call")
+                if isinstance(tc, dict):
+                    tool = tc.get("name", "")
+                    params = tc.get("parameters", {})
+
+            if not output:
+                tr = step.get("tool_result")
+                if isinstance(tr, dict):
+                    output = tr.get("output", "")
+
+            steps.append({"tool": tool, "params": params, "output": output})
+
+        outcome = {
+            "success": traj.success,
+            "total_steps": traj.total_steps,
+        }
+
+        result = engine.score({
+            "task": traj.metadata.get("task_description", traj.task_id),
+            "steps": steps,
+            "outcome": outcome,
+        })
+
+        return result
 
     # ------------------------------------------------------------------
     # 内部方法

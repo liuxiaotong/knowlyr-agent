@@ -282,6 +282,52 @@ DISCUSSION_PROFILE = DomainProfile(
     },
 )
 
+CREW_PROFILE = DomainProfile(
+    domain="crew",
+    display_name="Crew Agent",
+    tools=[
+        ToolSpec(
+            name="respond", category=ToolCategory.WRITE,
+            aliases=["reply", "answer"],
+        ),
+        ToolSpec(
+            name="read_notes", category=ToolCategory.READ,
+            aliases=["read_file", "Read"],
+        ),
+        ToolSpec(
+            name="write_notes", category=ToolCategory.WRITE,
+            aliases=["write_file", "Write", "edit_file", "Edit"],
+        ),
+        ToolSpec(
+            name="web_search", category=ToolCategory.SEARCH,
+            aliases=["search", "browse", "WebSearch"],
+        ),
+        ToolSpec(
+            name="web_fetch", category=ToolCategory.READ,
+            aliases=["fetch", "WebFetch"],
+        ),
+        ToolSpec(
+            name="bash", category=ToolCategory.EXECUTE,
+            aliases=["Bash", "shell", "run"],
+        ),
+        ToolSpec(
+            name="delegate", category=ToolCategory.EXECUTE,
+            aliases=["assign", "dispatch", "pull"],
+        ),
+        ToolSpec(name="think", category=ToolCategory.THINK),
+    ],
+    outcome_spec=OutcomeSpec(
+        success_field="success",
+        score_field="total_steps",
+        total_field="total_tokens",
+    ),
+    task_fields={
+        "employee": "AI 员工名",
+        "role": "员工角色",
+        "context": "对话/任务上下文",
+    },
+)
+
 GENERIC_PROFILE = DomainProfile(
     domain="generic",
     display_name="Generic Tool-Use Agent",
@@ -296,6 +342,7 @@ _BUILTIN_PROFILES: dict[str, DomainProfile] = {
     "engineering": ENGINEERING_PROFILE,
     "advisory": ADVISORY_PROFILE,
     "discussion": DISCUSSION_PROFILE,
+    "crew": CREW_PROFILE,
     "generic": GENERIC_PROFILE,
 }
 
