@@ -1,0 +1,313 @@
+"""AntgatherBridge 测试."""
+
+import json
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from trajectoryhub.bridge import AntgatherBridge, PullResult, PushResult
+from trajectoryhub.cas import CAStore
+
+
+def _make_store_with_data(tmp_path, trajectories=None):
+    """创建一个带数据的 CAStore."""
+    store = CAStore(tmp_path / "data" / "cas.sqlite")
+    if trajectories:
+        for traj in trajectories:
+            store._conn.execute(
+                """INSERT INTO trajectories
+                   (content_hash, task_id, agent_framework, agent_model,
+                    total_steps, success, reward, created_at, data,
+                    employee, source, domain)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    traj.get("content_hash", "abc123"),
+                    traj.get("task_id", "t1"),
+                    traj.get("agent_framework", "crew"),
+                    traj.get("agent_model", "claude-sonnet"),
+                    traj.get("total_steps", 1),
+                    1 if traj.get("success", True) else 0,
+                    traj.get("reward", 0.5),
+                    traj.get("created_at", 1000000.0),
+                    json.dumps(traj.get("data", {"steps": [], "metadata": {}})),
+                    traj.get("employee", "backend-engineer"),
+                    traj.get("source", "claude-code"),
+                    traj.get("domain", "crew"),
+                ),
+            )
+        store._conn.commit()
+    return store
+
+
+class TestAntgatherBridgeInit:
+    """AntgatherBridge 初始化测试."""
+
+    def test_init_with_params(self, tmp_path):
+        store = CAStore(tmp_path / "cas.sqlite")
+        bridge = AntgatherBridge(
+            store=store,
+            base_url="https://test.example.com",
+            token="test-token",
+            dataset_id="DS001",
+        )
+        assert bridge.base_url == "https://test.example.com"
+        assert bridge.token == "test-token"
+        assert bridge.dataset_id == "DS001"
+        store.close()
+
+    def test_init_from_env(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ANTGATHER_BASE_URL", "https://env.example.com/")
+        monkeypatch.setenv("ANTGATHER_TOKEN", "env-token")
+        monkeypatch.setenv("ANTGATHER_DATASET_ID", "DS_ENV")
+
+        store = CAStore(tmp_path / "cas.sqlite")
+        bridge = AntgatherBridge(store=store)
+        # rstrip("/") 应移除尾部斜杠
+        assert bridge.base_url == "https://env.example.com"
+        assert bridge.token == "env-token"
+        assert bridge.dataset_id == "DS_ENV"
+        store.close()
+
+    def test_init_defaults(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("ANTGATHER_BASE_URL", raising=False)
+        monkeypatch.delenv("ANTGATHER_TOKEN", raising=False)
+        monkeypatch.delenv("ANTGATHER_DATASET_ID", raising=False)
+
+        store = CAStore(tmp_path / "cas.sqlite")
+        bridge = AntgatherBridge(store=store)
+        assert bridge.base_url == "https://antgather.knowlyr.com"
+        assert bridge.token == ""
+        assert bridge.dataset_id == ""
+        store.close()
+
+
+class TestPushTrajectories:
+    """push_trajectories 测试."""
+
+    def test_empty_cas(self, tmp_path):
+        store = CAStore(tmp_path / "cas.sqlite")
+        bridge = AntgatherBridge(store=store, dataset_id="DS001")
+        result = bridge.push_trajectories()
+        assert result.pushed == 0
+        assert result.skipped == 0
+        assert result.errors == 0
+        store.close()
+
+    def test_push_with_data(self, tmp_path):
+        store = _make_store_with_data(
+            tmp_path,
+            [
+                {
+                    "content_hash": "hash1",
+                    "task_id": "t1",
+                    "employee": "backend-engineer",
+                    "created_at": 1000000.0,
+                    "data": {
+                        "steps": [{"step_id": 1, "tool": "Bash", "output": "ok"}],
+                        "metadata": {},
+                    },
+                },
+                {
+                    "content_hash": "hash2",
+                    "task_id": "t2",
+                    "employee": "frontend-engineer",
+                    "created_at": 1000001.0,
+                    "data": {
+                        "steps": [{"step_id": 1, "tool": "Read", "output": "done"}],
+                        "metadata": {},
+                    },
+                },
+            ],
+        )
+        bridge = AntgatherBridge(store=store, dataset_id="DS001")
+        result = bridge.push_trajectories()
+        assert result.pushed == 2
+        assert result.errors == 0
+        assert len(result.sanitized_data) == 2
+        store.close()
+
+    def test_push_with_since(self, tmp_path):
+        store = _make_store_with_data(
+            tmp_path,
+            [
+                {
+                    "content_hash": "old",
+                    "task_id": "t1",
+                    "created_at": 900000.0,
+                    "data": {"steps": [], "metadata": {}},
+                },
+                {
+                    "content_hash": "new",
+                    "task_id": "t2",
+                    "created_at": 1100000.0,
+                    "data": {"steps": [], "metadata": {}},
+                },
+            ],
+        )
+        bridge = AntgatherBridge(store=store, dataset_id="DS001")
+        result = bridge.push_trajectories(since=1000000.0)
+        assert result.pushed == 1  # 只有 created_at > 1000000.0 的
+        store.close()
+
+    def test_push_bad_data(self, tmp_path):
+        """data 字段为非法 JSON 时计入 errors."""
+        store = CAStore(tmp_path / "cas.sqlite")
+        store._conn.execute(
+            """INSERT INTO trajectories
+               (content_hash, task_id, agent_framework, agent_model,
+                total_steps, success, reward, created_at, data,
+                employee, source, domain)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("badhash", "t1", "crew", "model", 1, 1, 0.5, 1000000.0,
+             "NOT VALID JSON", "eng", "src", "dom"),
+        )
+        store._conn.commit()
+
+        bridge = AntgatherBridge(store=store, dataset_id="DS001")
+        result = bridge.push_trajectories()
+        assert result.errors == 1
+        assert result.pushed == 0
+        store.close()
+
+
+class TestPullJudgments:
+    """pull_judgments 测试."""
+
+    def test_no_dataset_id(self, tmp_path):
+        store = CAStore(tmp_path / "cas.sqlite")
+        bridge = AntgatherBridge(store=store, dataset_id="")
+        result = bridge.pull_judgments()
+        assert result.pulled == 0
+        assert result.dpo_pairs == 0
+        store.close()
+
+    @patch.object(AntgatherBridge, "_request")
+    def test_pull_empty_judgments(self, mock_request, tmp_path):
+        mock_request.return_value = {"data": []}
+        store = CAStore(tmp_path / "cas.sqlite")
+        bridge = AntgatherBridge(store=store, dataset_id="DS001", token="tok")
+        result = bridge.pull_judgments()
+        assert result.pulled == 0
+        assert result.dpo_pairs == 0
+        store.close()
+
+    @patch.object(AntgatherBridge, "_request")
+    def test_pull_with_consensus(self, mock_request, tmp_path):
+        """有共识的判断应生成 DPO 对."""
+        mock_request.side_effect = [
+            # 第一次调用：列表
+            {
+                "data": [
+                    {"id": 42, "title": "哪个回答更好？"},
+                ]
+            },
+            # 第二次调用：详情
+            {
+                "id": 42,
+                "title": "哪个回答更好？",
+                "status": "closed",
+                "total_responses": 3,
+                "distribution": [
+                    {"index": 0, "label": "轨迹A更好", "votes": 2, "percent": 66.7},
+                    {"index": 1, "label": "轨迹B更好", "votes": 1, "percent": 33.3},
+                ],
+                "majority": {
+                    "index": 0,
+                    "label": "轨迹A更好",
+                    "votes": 2,
+                    "consensus": True,
+                },
+            },
+        ]
+
+        store = CAStore(tmp_path / "cas.sqlite")
+        bridge = AntgatherBridge(store=store, dataset_id="DS001", token="tok")
+        result = bridge.pull_judgments()
+        assert result.pulled == 1
+        assert result.dpo_pairs == 1
+        store.close()
+
+    @patch.object(AntgatherBridge, "_request")
+    def test_pull_no_consensus(self, mock_request, tmp_path):
+        """无共识的判断不生成 DPO 对."""
+        mock_request.side_effect = [
+            {"data": [{"id": 99}]},
+            {
+                "id": 99,
+                "total_responses": 3,
+                "majority": {"index": 0, "label": "A", "votes": 1, "consensus": False},
+            },
+        ]
+
+        store = CAStore(tmp_path / "cas.sqlite")
+        bridge = AntgatherBridge(store=store, dataset_id="DS001", token="tok")
+        result = bridge.pull_judgments()
+        assert result.pulled == 1
+        assert result.dpo_pairs == 0
+        store.close()
+
+    @patch.object(AntgatherBridge, "_request")
+    def test_pull_api_error(self, mock_request, tmp_path):
+        """API 异常时 graceful 降级."""
+        mock_request.side_effect = Exception("connection refused")
+
+        store = CAStore(tmp_path / "cas.sqlite")
+        bridge = AntgatherBridge(store=store, dataset_id="DS001", token="tok")
+        result = bridge.pull_judgments()
+        assert result.pulled == 0
+        assert result.dpo_pairs == 0
+        store.close()
+
+
+class TestCreateJudgment:
+    """create_judgment 测试."""
+
+    def test_no_dataset_id(self, tmp_path):
+        store = CAStore(tmp_path / "cas.sqlite")
+        bridge = AntgatherBridge(store=store, dataset_id="")
+        result = bridge.create_judgment(
+            title="test", description="desc", options=["A", "B"]
+        )
+        assert result is None
+        store.close()
+
+    def test_title_truncation(self, tmp_path):
+        """标题超过 200 字应被截断."""
+        store = CAStore(tmp_path / "cas.sqlite")
+        bridge = AntgatherBridge(
+            store=store, dataset_id="DS001", token="tok",
+            base_url="https://test.example.com",
+        )
+
+        long_title = "X" * 300
+        long_desc = "Y" * 3000
+        many_options = [f"opt{i}" for i in range(15)]
+
+        with patch.object(bridge, "_request") as mock_req:
+            mock_req.return_value = {"ok": True, "id": 1, "frozen": 5}
+            result = bridge.create_judgment(
+                title=long_title,
+                description=long_desc,
+                options=many_options,
+            )
+
+        assert result is not None
+        # 验证截断逻辑
+        call_data = mock_req.call_args[0][2]
+        assert len(call_data["title"]) == 200
+        assert len(call_data["description"]) == 2000
+        assert len(call_data["options"]) == 10
+        store.close()
+
+    @patch.object(AntgatherBridge, "_request")
+    def test_create_api_error(self, mock_request, tmp_path):
+        """API 失败时返回 None."""
+        mock_request.side_effect = Exception("500 server error")
+
+        store = CAStore(tmp_path / "cas.sqlite")
+        bridge = AntgatherBridge(store=store, dataset_id="DS001", token="tok")
+        result = bridge.create_judgment(
+            title="test", description="desc", options=["A", "B"]
+        )
+        assert result is None
+        store.close()

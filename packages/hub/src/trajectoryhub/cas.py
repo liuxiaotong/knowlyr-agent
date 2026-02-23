@@ -287,6 +287,31 @@ class CAStore:
                 [(score, h) for h, score in scores.items()],
             )
 
+    def query_trajectories(
+        self, since: float | None = None, limit: int = 100
+    ) -> list[sqlite3.Row]:
+        """查询轨迹列表.
+
+        Args:
+            since: Unix timestamp，只返回此时间之后的轨迹。None = 全部。
+            limit: 最多返回条数。
+
+        Returns:
+            sqlite3.Row 列表，包含 content_hash, data, employee, created_at。
+        """
+        if since:
+            return self._conn.execute(
+                "SELECT content_hash, data, employee, created_at FROM trajectories "
+                "WHERE created_at > ? ORDER BY created_at LIMIT ?",
+                (since, limit),
+            ).fetchall()
+        else:
+            return self._conn.execute(
+                "SELECT content_hash, data, employee, created_at FROM trajectories "
+                "ORDER BY created_at LIMIT ?",
+                (limit,),
+            ).fetchall()
+
     def stats(self) -> dict[str, Any]:
         """返回存储统计信息."""
         total = self.count()

@@ -618,5 +618,61 @@ def ingest_crew(source: str, db: Optional[str], reset: bool):
     store.close()
 
 
+@main.group()
+def sync():
+    """与外部系统同步数据."""
+    pass
+
+
+@sync.command("antgather")
+@click.option("--db", type=click.Path(), default=None, help="CAS 数据库路径")
+@click.option("--base-url", default=None, help="蚁聚 API 地址")
+@click.option("--token", default=None, help="蚁聚 API Token")
+@click.option("--dataset-id", default=None, help="蚁聚数据集 ID")
+@click.option(
+    "--since", type=float, default=None, help="只推送此时间戳之后的轨迹"
+)
+@click.option("--limit", type=int, default=100, help="单次最多推送条数")
+@click.option("--pull-judgments", is_flag=True, help="同时拉取判断结果")
+def sync_antgather(db, base_url, token, dataset_id, since, limit, pull_judgments):
+    """同步 CAS 数据到蚁聚数据集.
+
+    例：knowlyr-hub sync antgather --dataset-id DS123456 --pull-judgments
+    """
+    import os
+
+    from trajectoryhub.bridge import AntgatherBridge
+
+    db_path = db or os.environ.get("KNOWLYR_CAS_PATH", "./data/cas.sqlite")
+    store = CAStore(db_path)
+
+    bridge = AntgatherBridge(
+        store=store,
+        base_url=base_url,
+        token=token,
+        dataset_id=dataset_id,
+    )
+
+    # 推送轨迹
+    click.echo(f"推送轨迹到蚁聚 (数据集: {bridge.dataset_id or '未配置'})...")
+    push_result = bridge.push_trajectories(since=since, limit=limit)
+    click.echo(
+        f"  推送: {push_result.pushed} 条, "
+        f"跳过: {push_result.skipped}, 错误: {push_result.errors}"
+    )
+
+    # 拉取判断
+    if pull_judgments:
+        click.echo("拉取判断结果...")
+        pull_result = bridge.pull_judgments()
+        click.echo(
+            f"  拉取: {pull_result.pulled} 个判断, "
+            f"生成: {pull_result.dpo_pairs} 个 DPO 训练对"
+        )
+
+    store.close()
+    click.echo("同步完成")
+
+
 if __name__ == "__main__":
     main()

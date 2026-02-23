@@ -17,9 +17,16 @@
 from __future__ import annotations
 
 import copy
+import json
+import logging
+import os
 import re
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # ── 脱敏规则定义 ──────────────────────────────────────────────
 
@@ -311,3 +318,114 @@ def _audit_entries_to_dicts(entries: list[AuditEntry]) -> list[dict[str, Any]]:
         }
         for e in entries
     ]
+
+
+# -- Phase 2: LLM 软规则（语义脱敏）-------------------------------
+
+
+def sanitize_soft(text: str, model: str = "claude-haiku") -> SanitizeResult:
+    """LLM 语义脱敏：识别上下文敏感信息.
+
+    用小模型识别并替换：
+    - 公司名 -> [COMPANY]
+    - 人名 -> [PERSON]
+    - 金额 -> [AMOUNT]
+    - 客户名 -> [CLIENT]
+
+    Args:
+        text: 硬规则处理后的文本
+        model: 使用的模型（默认 haiku，成本低）
+
+    Returns:
+        SanitizeResult
+    """
+    if not text or len(text) < 10:
+        return SanitizeResult(text=text)
+
+    # 尝试调用 LLM
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        logger.debug("未设置 ANTHROPIC_API_KEY，跳过 LLM 软规则")
+        return SanitizeResult(text=text)
+
+    # 截断过长文本（控制成本）
+    truncated = text[:4000] if len(text) > 4000 else text
+
+    # 构造提示词（用截断后的文本，与实际发给 API 的一致）
+    prompt = (
+        "你是数据脱敏助手。请将以下文本中的敏感信息替换为占位符，保留语义结构：\n"
+        "- 公司/组织名 -> [COMPANY]\n"
+        "- 人名（中英文） -> [PERSON]\n"
+        "- 具体金额/薪资 -> [AMOUNT]\n"
+        "- 客户/合作方名称 -> [CLIENT]\n"
+        "- 产品名/项目代号 -> [PROJECT]\n\n"
+        "只输出替换后的文本，不要解释。如果没有需要替换的内容，原样输出。\n\n"
+        f"文本：\n{truncated}"
+    )
+
+    payload = {
+        "model": "claude-haiku-4-5",
+        "max_tokens": len(truncated) + 500,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+
+    try:
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=json.dumps(payload, ensure_ascii=False).encode(),
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            resp_data = json.loads(resp.read().decode())
+
+        content = resp_data.get("content", [])
+        if content and isinstance(content, list):
+            sanitized_text = content[0].get("text", truncated)
+
+            # 如果原文被截断，拼接尾部原文
+            if len(text) > 4000:
+                sanitized_text = sanitized_text + text[4000:]
+
+            # 简单审计：比较差异
+            audit = []
+            if sanitized_text != text:
+                audit.append(
+                    AuditEntry(
+                        rule_name="llm_soft_rule",
+                        original="(see diff)",
+                        replacement="(LLM sanitized)",
+                        position=0,
+                    )
+                )
+
+            return SanitizeResult(text=sanitized_text, audit_log=audit)
+    except (urllib.error.URLError, json.JSONDecodeError, Exception) as e:
+        logger.warning("LLM 软规则异常: %s", e)
+
+    return SanitizeResult(text=text)
+
+
+def sanitize_full(text: str) -> SanitizeResult:
+    """完整两层脱敏：硬规则 -> LLM 软规则.
+
+    Args:
+        text: 原始文本
+
+    Returns:
+        最终脱敏结果（合并两层审计日志）
+    """
+    # 第一层：硬规则
+    hard_result = sanitize(text)
+
+    # 第二层：LLM 软规则
+    soft_result = sanitize_soft(hard_result.text)
+
+    # 合并审计日志
+    combined_audit = hard_result.audit_log + soft_result.audit_log
+
+    return SanitizeResult(text=soft_result.text, audit_log=combined_audit)

@@ -1,8 +1,16 @@
-"""Sanitizer 硬规则脱敏测试."""
+"""Sanitizer 脱敏测试（硬规则 + 软规则）."""
+
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from trajectoryhub.sanitizer import sanitize, sanitize_trajectory, SanitizeResult
+from trajectoryhub.sanitizer import (
+    sanitize,
+    sanitize_full,
+    sanitize_soft,
+    sanitize_trajectory,
+    SanitizeResult,
+)
 
 
 class TestSanitize:
@@ -196,3 +204,103 @@ class TestSanitizeTrajectory:
         }
         clean = sanitize_trajectory(traj)
         assert "192.168.1.1" not in clean["steps"][0]["output"]
+
+
+# -- Phase 2: LLM 软规则测试 --
+
+
+class TestSanitizeSoft:
+    """sanitize_soft() LLM 语义脱敏测试."""
+
+    def test_short_text_passthrough(self):
+        """短文本（<10字符）直接跳过."""
+        r = sanitize_soft("hello")
+        assert r.text == "hello"
+        assert r.redacted_count == 0
+
+    def test_empty_text(self):
+        r = sanitize_soft("")
+        assert r.text == ""
+
+    def test_no_api_key(self, monkeypatch):
+        """无 ANTHROPIC_API_KEY 时 graceful 降级，原样返回."""
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        text = "这是一段足够长的测试文本内容"
+        r = sanitize_soft(text)
+        assert r.text == text
+        assert r.redacted_count == 0
+
+    @patch("trajectoryhub.sanitizer.urllib.request.urlopen")
+    def test_llm_call_success(self, mock_urlopen, monkeypatch):
+        """LLM 调用成功时返回脱敏后文本."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-12345")
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"content":[{"text":"[COMPANY] \\u7684 [PERSON] \\u5b8c\\u6210\\u4e86\\u5f00\\u53d1"}]}'
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        r = sanitize_soft("集识光年的赵云帆完成了开发")
+        assert r.text == "[COMPANY] 的 [PERSON] 完成了开发"
+        assert r.redacted_count == 1  # llm_soft_rule
+
+    @patch("trajectoryhub.sanitizer.urllib.request.urlopen")
+    def test_llm_call_failure(self, mock_urlopen, monkeypatch):
+        """LLM 调用失败时 graceful 降级."""
+        import urllib.error
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-12345")
+        mock_urlopen.side_effect = urllib.error.URLError("connection refused")
+
+        text = "这是一段需要脱敏的文本内容啊"
+        r = sanitize_soft(text)
+        assert r.text == text
+
+    @patch("trajectoryhub.sanitizer.urllib.request.urlopen")
+    def test_llm_timeout(self, mock_urlopen, monkeypatch):
+        """LLM 调用超时时 graceful 降级."""
+        import urllib.error
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-12345")
+        mock_urlopen.side_effect = urllib.error.URLError("timed out")
+
+        text = "超时测试的足够长文本内容啊"
+        r = sanitize_soft(text)
+        assert r.text == text
+
+
+class TestSanitizeFull:
+    """sanitize_full() 两层串联测试."""
+
+    def test_hard_rules_applied(self, monkeypatch):
+        """硬规则应先执行."""
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        r = sanitize_full("token is sk-abcdefghij0123456789012345, call 13812345678")
+        assert "sk-" not in r.text
+        assert "13812345678" not in r.text
+        assert "[REDACTED_TOKEN]" in r.text
+        assert "[REDACTED_PHONE]" in r.text
+
+    def test_audit_log_merged(self, monkeypatch):
+        """两层审计日志应合并."""
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        r = sanitize_full("email test@secret.com 联系人")
+        # 硬规则会检测到 email
+        assert r.redacted_count >= 1
+        # 无 API key 时软规则不会产生审计条目
+        assert all(e.rule_name != "llm_soft_rule" for e in r.audit_log)
+
+    @patch("trajectoryhub.sanitizer.urllib.request.urlopen")
+    def test_full_pipeline_both_layers(self, mock_urlopen, monkeypatch):
+        """硬规则 + 软规则都生效."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-12345")
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"content":[{"text":"[REDACTED_TOKEN] \\u5c5e\\u4e8e [COMPANY]"}]}'
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        r = sanitize_full("sk-abcdefghij0123456789012345 属于集识光年")
+        # 硬规则审计 + 软规则审计
+        hard_entries = [e for e in r.audit_log if e.rule_name != "llm_soft_rule"]
+        soft_entries = [e for e in r.audit_log if e.rule_name == "llm_soft_rule"]
+        assert len(hard_entries) >= 1
+        assert len(soft_entries) >= 1
