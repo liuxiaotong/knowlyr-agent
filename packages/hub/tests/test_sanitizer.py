@@ -2,14 +2,11 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from trajectoryhub.sanitizer import (
     sanitize,
     sanitize_full,
     sanitize_soft,
     sanitize_trajectory,
-    SanitizeResult,
 )
 
 

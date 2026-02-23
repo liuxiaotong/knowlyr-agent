@@ -604,14 +604,14 @@ def ingest_crew(source: str, db: Optional[str], reset: bool):
     ingestor = CrewIngestor(store)
     result = ingestor.ingest(source)
 
-    click.echo(f"\n拉取完成:")
+    click.echo("\n拉取完成:")
     click.echo(f"  新增: {result.ingested} 条")
     click.echo(f"  跳过: {result.skipped} 条")
     click.echo(f"  错误: {result.errors} 条")
 
     # 打印当前 CAS 统计
     stats = store.stats()
-    click.echo(f"\nCAS 当前状态:")
+    click.echo("\nCAS 当前状态:")
     click.echo(f"  总轨迹数: {stats['total_trajectories']}")
     click.echo(f"  不同任务: {stats['unique_tasks']}")
 
@@ -672,6 +672,65 @@ def sync_antgather(db, base_url, token, dataset_id, since, limit, pull_judgments
 
     store.close()
     click.echo("同步完成")
+
+
+@sync.command("auto-judge")
+@click.option("--db", type=click.Path(), default=None, help="CAS 数据库路径")
+@click.option("--base-url", default=None, help="蚁聚 API 地址")
+@click.option("--token", default=None, help="蚁聚 API Token")
+@click.option("--dataset-id", default=None, help="蚁聚数据集 ID")
+@click.option("--batch-size", type=int, default=10, help="单批最多发起的判断数")
+@click.option("--reward", type=int, default=5, help="每个回答的光粒奖励")
+@click.option("--max-answers", type=int, default=3, help="每个判断最多接受回答数")
+@click.option(
+    "--uncertainty-min", type=float, default=0.3, help="不确定性区间下界 (reward)",
+)
+@click.option(
+    "--uncertainty-max", type=float, default=0.7, help="不确定性区间上界 (reward)",
+)
+@click.option("--requester-id", type=int, default=1, help="提问者 user_id")
+def sync_auto_judge(
+    db, base_url, token, dataset_id, batch_size, reward,
+    max_answers, uncertainty_min, uncertainty_max, requester_id,
+):
+    """自动挑选不确定轨迹发到蚁聚判断大厅.
+
+    从 CAS 找 reward 在不确定区间内的同任务轨迹对，两两配对后发到判断大厅。
+
+    例：knowlyr-hub sync auto-judge --dataset-id DS123456 --batch-size 20
+    """
+    import os
+
+    from trajectoryhub.bridge import AntgatherBridge
+
+    db_path = db or os.environ.get("KNOWLYR_CAS_PATH", "./data/cas.sqlite")
+    store = CAStore(db_path)
+
+    bridge = AntgatherBridge(
+        store=store,
+        base_url=base_url,
+        token=token,
+        dataset_id=dataset_id,
+    )
+
+    click.echo(f"自动判断 (数据集: {bridge.dataset_id or '未配置'})...")
+    click.echo(f"  不确定区间: [{uncertainty_min}, {uncertainty_max}]")
+    click.echo(f"  批大小: {batch_size}")
+
+    result = bridge.auto_judge(
+        reward_uncertainty_range=(uncertainty_min, uncertainty_max),
+        reward_per_answer=reward,
+        max_answers=max_answers,
+        batch_size=batch_size,
+        requester_id=requester_id,
+    )
+
+    click.echo("\n自动判断完成:")
+    click.echo(f"  创建: {result['created']} 个判断请求")
+    click.echo(f"  跳过: {result['skipped']} 条轨迹")
+    click.echo(f"  错误: {result['errors']} 个")
+
+    store.close()
 
 
 if __name__ == "__main__":

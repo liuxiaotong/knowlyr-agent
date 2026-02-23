@@ -312,6 +312,51 @@ class CAStore:
                 (limit,),
             ).fetchall()
 
+    def query_by_task(
+        self,
+        min_per_task: int = 2,
+        reward_range: tuple[float, float] | None = None,
+        limit: int = 1000,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """按 task_id 分组查询轨迹.
+
+        Args:
+            min_per_task: 每个 task_id 至少需要多少条轨迹才返回.
+            reward_range: 只返回 reward 在此区间内的轨迹 (min, max).
+            limit: 最多返回的轨迹总数.
+
+        Returns:
+            {task_id: [轨迹 dict 列表]} 映射.
+        """
+        sql = "SELECT * FROM trajectories"
+        params: list[Any] = []
+        conditions = []
+
+        if reward_range is not None:
+            conditions.append("reward >= ? AND reward <= ?")
+            params.extend([reward_range[0], reward_range[1]])
+
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
+
+        sql += " ORDER BY task_id, reward DESC LIMIT ?"
+        params.append(limit)
+
+        rows = self._conn.execute(sql, params).fetchall()
+
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            d = self._row_to_dict(row)
+            tid = d.get("task_id", "")
+            if not tid:
+                continue
+            if tid not in groups:
+                groups[tid] = []
+            groups[tid].append(d)
+
+        # 过滤掉不够 min_per_task 的
+        return {tid: trajs for tid, trajs in groups.items() if len(trajs) >= min_per_task}
+
     def stats(self) -> dict[str, Any]:
         """返回存储统计信息."""
         total = self.count()

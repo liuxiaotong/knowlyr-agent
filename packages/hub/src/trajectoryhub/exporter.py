@@ -5,10 +5,14 @@
 - DPO: 偏好学习格式 (chosen/rejected 对)
 - Benchmark: 评测基准格式
 - HuggingFace: 推送到 HuggingFace Hub
+
+Phase 3 新增：
+- export_sft_split / export_dpo_split: 按比例分割导出 train/val/test
 """
 
 import json
 import logging
+import random
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -139,32 +143,7 @@ class DatasetExporter:
 
             with open(output, "w", encoding="utf-8") as f:
                 for traj in successful:
-                    # 将步骤序列转为 response 文本（复用 _steps_to_text）
-                    response_text = self._steps_to_text(traj.get("steps", []))
-                    response_parts = [response_text] if response_text else []
-
-                    metadata = traj.get("metadata", {})
-                    record = {
-                        "instruction": metadata.get(
-                            "task_description", f"Solve task: {traj.get('task_id', '')}"
-                        ),
-                        "input": json.dumps(
-                            {
-                                "repo": metadata.get("repo", ""),
-                                "base_commit": metadata.get("base_commit", ""),
-                                "test_command": metadata.get("test_command", ""),
-                            },
-                            ensure_ascii=False,
-                        ),
-                        "response": "\n\n".join(response_parts) if response_parts else "",
-                        "task_id": traj.get("task_id", ""),
-                        "reward": traj.get("reward", 0.0),
-                        "metadata": {
-                            "agent_framework": traj.get("agent_framework", ""),
-                            "agent_model": traj.get("agent_model", ""),
-                            "total_steps": traj.get("total_steps", 0),
-                        },
-                    }
+                    record = self._format_sft_record(traj)
                     f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
             logger.info("SFT 导出完成: %d 条记录 -> %s", len(successful), output)
@@ -222,25 +201,7 @@ class DatasetExporter:
 
             with open(output, "w", encoding="utf-8") as f:
                 for pref in preferences:
-                    # 将步骤序列转为文本
-                    chosen_text = self._steps_to_text(pref.get("chosen", {}).get("steps", []))
-                    rejected_text = self._steps_to_text(
-                        pref.get("rejected", {}).get("steps", [])
-                    )
-
-                    record = {
-                        "prompt": f"Solve the following task:\n\nTask ID: {pref.get('task_id', '')}",
-                        "chosen": chosen_text,
-                        "rejected": rejected_text,
-                        "task_id": pref.get("task_id", ""),
-                        "reward_margin": pref.get("reward_margin", 0.0),
-                        "metadata": {
-                            "chosen_model": pref.get("chosen", {}).get("agent_model", ""),
-                            "rejected_model": pref.get("rejected", {}).get("agent_model", ""),
-                            "chosen_reward": pref.get("chosen", {}).get("reward", 0.0),
-                            "rejected_reward": pref.get("rejected", {}).get("reward", 0.0),
-                        },
-                    }
+                    record = self._format_dpo_record(pref)
                     f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
             logger.info("DPO 导出完成: %d 条记录 -> %s", len(preferences), output)
@@ -615,6 +576,199 @@ If you use this dataset, please cite:
         return card
 
     # ------------------------------------------------------------------
+    # Phase 3: 分割导出
+    # ------------------------------------------------------------------
+
+    def export_sft_split(
+        self,
+        output_dir: str,
+        split_ratios: dict[str, float] | None = None,
+        seed: int = 42,
+    ) -> dict[str, "ExportResult"]:
+        """导出 SFT 数据并按比例分割为 train/val/test.
+
+        Args:
+            output_dir: 输出目录，会生成 train.jsonl / val.jsonl / test.jsonl
+            split_ratios: 分割比例，默认 {"train": 0.8, "val": 0.1, "test": 0.1}
+            seed: 随机种子
+
+        Returns:
+            各分割的 ExportResult
+        """
+        ratios = split_ratios or {"train": 0.8, "val": 0.1, "test": 0.1}
+        try:
+            trajectories = self._load_trajectories()
+            # 只选成功的轨迹，按 reward 排序后 shuffle
+            successful = sorted(
+                [t for t in trajectories if t.get("success", False)],
+                key=lambda t: t.get("reward", 0.0),
+                reverse=True,
+            )
+
+            # 格式化为 SFT 记录
+            records = [self._format_sft_record(t) for t in successful]
+
+            return self._split_and_write(records, output_dir, ratios, seed, "sft")
+
+        except Exception as e:
+            logger.exception("SFT 分割导出失败")
+            return {
+                name: ExportResult(success=False, format="sft", error=str(e))
+                for name in ratios
+            }
+
+    def export_dpo_split(
+        self,
+        output_dir: str,
+        split_ratios: dict[str, float] | None = None,
+        seed: int = 42,
+    ) -> dict[str, "ExportResult"]:
+        """导出 DPO 数据并按比例分割为 train/val/test.
+
+        Args:
+            output_dir: 输出目录，会生成 train.jsonl / val.jsonl / test.jsonl
+            split_ratios: 分割比例，默认 {"train": 0.8, "val": 0.1, "test": 0.1}
+            seed: 随机种子
+
+        Returns:
+            各分割的 ExportResult
+        """
+        ratios = split_ratios or {"train": 0.8, "val": 0.1, "test": 0.1}
+
+        if not self.preferences_dir or not self.preferences_dir.exists():
+            return {
+                name: ExportResult(
+                    success=False,
+                    format="dpo",
+                    error="偏好对文件不存在，请先运行 Pipeline 生成偏好对",
+                )
+                for name in ratios
+            }
+
+        try:
+            preferences = self._load_preferences()
+
+            records = [self._format_dpo_record(p) for p in preferences]
+
+            return self._split_and_write(records, output_dir, ratios, seed, "dpo")
+
+        except Exception as e:
+            logger.exception("DPO 分割导出失败")
+            return {
+                name: ExportResult(success=False, format="dpo", error=str(e))
+                for name in ratios
+            }
+
+    def _format_sft_record(self, traj: Dict[str, Any]) -> Dict[str, Any]:
+        """将单条轨迹格式化为 SFT 记录."""
+        response_text = self._steps_to_text(traj.get("steps", []))
+        response_parts = [response_text] if response_text else []
+
+        metadata = traj.get("metadata", {})
+        return {
+            "instruction": metadata.get(
+                "task_description", f"Solve task: {traj.get('task_id', '')}"
+            ),
+            "input": json.dumps(
+                {
+                    "repo": metadata.get("repo", ""),
+                    "base_commit": metadata.get("base_commit", ""),
+                    "test_command": metadata.get("test_command", ""),
+                },
+                ensure_ascii=False,
+            ),
+            "response": "\n\n".join(response_parts) if response_parts else "",
+            "task_id": traj.get("task_id", ""),
+            "reward": traj.get("reward", 0.0),
+            "metadata": {
+                "agent_framework": traj.get("agent_framework", ""),
+                "agent_model": traj.get("agent_model", ""),
+                "total_steps": traj.get("total_steps", 0),
+            },
+        }
+
+    def _format_dpo_record(self, pref: Dict[str, Any]) -> Dict[str, Any]:
+        """将单条偏好对格式化为 DPO 记录."""
+        chosen_text = self._steps_to_text(pref.get("chosen", {}).get("steps", []))
+        rejected_text = self._steps_to_text(
+            pref.get("rejected", {}).get("steps", [])
+        )
+
+        # 优先使用 task_description（信息更丰富），与 reader.py _cas_to_dpo 保持一致
+        metadata = pref.get("metadata", {})
+        chosen_meta = pref.get("chosen", {}).get("metadata", {})
+        task_desc = (
+            metadata.get("task_description")
+            or chosen_meta.get("task_description")
+        )
+        prompt = task_desc if task_desc else f"Solve the following task:\n\nTask ID: {pref.get('task_id', '')}"
+
+        return {
+            "prompt": prompt,
+            "chosen": chosen_text,
+            "rejected": rejected_text,
+            "task_id": pref.get("task_id", ""),
+            "reward_margin": pref.get("reward_margin", 0.0),
+            "metadata": {
+                "chosen_model": pref.get("chosen", {}).get("agent_model", ""),
+                "rejected_model": pref.get("rejected", {}).get("agent_model", ""),
+                "chosen_reward": pref.get("chosen", {}).get("reward", 0.0),
+                "rejected_reward": pref.get("rejected", {}).get("reward", 0.0),
+            },
+        }
+
+    def _split_and_write(
+        self,
+        records: List[Dict[str, Any]],
+        output_dir: str,
+        ratios: dict[str, float],
+        seed: int,
+        fmt: str,
+    ) -> dict[str, "ExportResult"]:
+        """对记录列表做可复现 shuffle + 按比例分割写入."""
+        import os
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        # 可复现 shuffle
+        indices = list(range(len(records)))
+        rng = random.Random(seed)
+        rng.shuffle(indices)
+        shuffled = [records[i] for i in indices]
+
+        # 按比例分割
+        splits: dict[str, list[Dict[str, Any]]] = {}
+        total = len(shuffled)
+        offset = 0
+        split_names = list(ratios.keys())
+        for i, name in enumerate(split_names):
+            if i == len(split_names) - 1:
+                # 最后一份取余
+                splits[name] = shuffled[offset:]
+            else:
+                count = int(total * ratios[name])
+                splits[name] = shuffled[offset : offset + count]
+                offset += count
+
+        results: dict[str, ExportResult] = {}
+        for name, split_records in splits.items():
+            out_path = Path(output_dir) / f"{name}.jsonl"
+            with open(out_path, "w", encoding="utf-8") as f:
+                for rec in split_records:
+                    f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            results[name] = ExportResult(
+                success=True,
+                output_path=str(out_path),
+                total_records=len(split_records),
+                format=fmt,
+            )
+            logger.info(
+                "%s 分割 %s: %d 条 -> %s", fmt.upper(), name, len(split_records), out_path
+            )
+
+        return results
+
+    # ------------------------------------------------------------------
     # 内部方法
     # ------------------------------------------------------------------
 
@@ -886,6 +1040,9 @@ If you use this dataset, please cite:
 
     def _steps_to_text(self, steps: List[Dict[str, Any]]) -> str:
         """将步骤列表转为文本格式.
+
+        # NOTE: 此函数与 trainer/reader.py 的同名函数逻辑同步。
+        # 修改任一处时请同步另一处，或考虑迁移至 knowlyr-core 包。
 
         兼容两种字段约定:
         - 标准 (recorder): action / observation

@@ -7,7 +7,6 @@ import urllib.request
 import urllib.error
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Optional
 from urllib.parse import urlencode
 
 from trajectoryhub.cas import CAStore
@@ -196,6 +195,145 @@ class AntgatherBridge:
             )
 
         return result
+
+    # -- 自动判断 --
+
+    def auto_judge(
+        self,
+        reward_uncertainty_range: tuple[float, float] = (0.3, 0.7),
+        min_pairs_per_task: int = 2,
+        reward_per_answer: int = 5,
+        max_answers: int = 3,
+        batch_size: int = 10,
+        requester_id: int = 1,
+    ) -> dict:
+        """自动从 CAS 挑选不确定轨迹对，发到蚁聚判断大厅.
+
+        挑选策略：
+        1. 找同 task_id 有多条轨迹的任务
+        2. 在这些轨迹中找 reward 处于 uncertainty_range 内的（AI 打分不确定）
+        3. 两两配对，用 create_judgment 发到判断大厅
+
+        Args:
+            reward_uncertainty_range: reward 不确定区间（AI 打分接近的轨迹对）
+            min_pairs_per_task: 每个任务至少需要几条轨迹才参与
+            reward_per_answer: 每个回答的光粒奖励
+            max_answers: 每个判断请求最多接受回答数
+            batch_size: 单批最多发起的判断数
+            requester_id: 提问者 user_id
+
+        Returns:
+            {"created": int, "skipped": int, "errors": int}
+        """
+        result = {"created": 0, "skipped": 0, "errors": 0}
+
+        if not self.dataset_id:
+            logger.warning("未配置 dataset_id，无法自动发起判断")
+            return result
+
+        # 从 CAS 查询符合条件的轨迹组
+        task_groups = self.store.query_by_task(
+            min_per_task=min_pairs_per_task,
+            reward_range=reward_uncertainty_range,
+        )
+
+        if not task_groups:
+            logger.info("没有符合不确定性条件的轨迹对")
+            return result
+
+        total_candidate_pairs = 0
+        created = 0
+        for task_id, trajectories in task_groups.items():
+            # 按 reward 降序排列，取相邻的对
+            sorted_trajs = sorted(
+                trajectories,
+                key=lambda t: t.get("reward", 0.0),
+                reverse=True,
+            )
+
+            # 计算候选对数（相邻配对）
+            pairs_in_task = len(sorted_trajs) - 1
+            total_candidate_pairs += pairs_in_task
+
+            for i in range(pairs_in_task):
+                if created >= batch_size:
+                    break
+
+                traj_a = sorted_trajs[i]
+                traj_b = sorted_trajs[i + 1]
+
+                # 提取摘要信息
+                employee = traj_a.get("employee", "Agent")
+                meta_a = traj_a.get("metadata", {})
+                task_desc = meta_a.get(
+                    "task_description",
+                    f"任务 {task_id}",
+                )
+
+                title = f"哪个 {employee} 的回答更好？（任务: {task_desc[:50]}）"
+
+                # 构建 description：包含两条轨迹的摘要
+                summary_a = self._trajectory_summary(traj_a)
+                summary_b = self._trajectory_summary(traj_b)
+                description = (
+                    f"## 任务\n{task_desc}\n\n"
+                    f"## 轨迹A\n{summary_a}\n\n"
+                    f"## 轨迹B\n{summary_b}"
+                )
+
+                options = ["轨迹A更好", "轨迹B更好", "差不多"]
+
+                resp = self.create_judgment(
+                    title=title,
+                    description=description,
+                    options=options,
+                    reward=reward_per_answer,
+                    max_answers=max_answers,
+                    requester_id=requester_id,
+                )
+
+                if resp is not None:
+                    result["created"] += 1
+                    created += 1
+                else:
+                    result["errors"] += 1
+
+            if created >= batch_size:
+                break
+
+        result["skipped"] = total_candidate_pairs - created
+        logger.info(
+            "auto_judge 完成: created=%d, skipped=%d, errors=%d",
+            result["created"],
+            result["skipped"],
+            result["errors"],
+        )
+        return result
+
+    def _trajectory_summary(self, traj: dict, max_steps: int = 3) -> str:
+        """生成轨迹摘要（前几步的 thought/action）."""
+        steps = traj.get("steps", [])
+        parts = []
+        for i, step in enumerate(steps[:max_steps], 1):
+            thought = step.get("thought", "")
+            action = step.get("action", "")
+            if not action:
+                tool = step.get("tool", "")
+                if tool:
+                    action = tool
+            if not action:
+                tc = step.get("tool_call")
+                if isinstance(tc, dict):
+                    action = tc.get("name", "")
+
+            line = f"Step {i}:"
+            if thought:
+                line += f" {thought}"
+            if action:
+                line += f" -> {action}"
+            parts.append(line)
+
+        return "\n".join(parts)
 
     # -- 发起判断 --
 

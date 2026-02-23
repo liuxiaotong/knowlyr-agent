@@ -1,11 +1,9 @@
 """AntgatherBridge 测试."""
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
-
-from trajectoryhub.bridge import AntgatherBridge, PullResult, PushResult
+from trajectoryhub.bridge import AntgatherBridge
 from trajectoryhub.cas import CAStore
 
 
@@ -310,4 +308,126 @@ class TestCreateJudgment:
             title="test", description="desc", options=["A", "B"]
         )
         assert result is None
+        store.close()
+
+
+class TestAutoJudge:
+    """auto_judge 自动判断测试."""
+
+    def _make_store_with_uncertainty(self, tmp_path, task_id="t1", rewards=None):
+        """创建含不确定性轨迹的 CAS."""
+        if rewards is None:
+            rewards = [0.4, 0.5, 0.6]  # 都在 (0.3, 0.7) 内
+        store = CAStore(tmp_path / "data" / "cas.sqlite")
+        for i, r in enumerate(rewards):
+            store._conn.execute(
+                """INSERT INTO trajectories
+                   (content_hash, task_id, agent_framework, agent_model,
+                    total_steps, success, reward, created_at, data,
+                    employee, source, domain)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    f"hash_{task_id}_{i}",
+                    task_id,
+                    "crew",
+                    "test-model",
+                    2,
+                    1,
+                    r,
+                    1000000.0 + i,
+                    json.dumps({
+                        "steps": [
+                            {"thought": f"思考 {i}", "action": f"action_{i}", "observation": "ok"},
+                        ],
+                        "metadata": {
+                            "task_description": f"测试任务 {task_id}",
+                            "employee": "backend-engineer",
+                        },
+                    }),
+                    "backend-engineer",
+                    "claude-code",
+                    "engineering",
+                ),
+            )
+        store._conn.commit()
+        return store
+
+    def test_no_dataset_id(self, tmp_path):
+        """未配置 dataset_id 时应返回全零."""
+        store = self._make_store_with_uncertainty(tmp_path)
+        bridge = AntgatherBridge(store=store, dataset_id="")
+        result = bridge.auto_judge()
+        assert result["created"] == 0
+        assert result["errors"] == 0
+        store.close()
+
+    def test_no_candidates(self, tmp_path):
+        """没有候选任务时返回 0."""
+        store = CAStore(tmp_path / "cas.sqlite")
+        bridge = AntgatherBridge(store=store, dataset_id="DS001")
+        result = bridge.auto_judge()
+        assert result["created"] == 0
+        store.close()
+
+    def test_single_task_not_enough_trajectories(self, tmp_path):
+        """只有 1 条轨迹的任务不应参与."""
+        store = self._make_store_with_uncertainty(tmp_path, rewards=[0.5])
+        bridge = AntgatherBridge(store=store, dataset_id="DS001")
+        result = bridge.auto_judge()
+        assert result["created"] == 0
+        store.close()
+
+    @patch.object(AntgatherBridge, "_request")
+    def test_creates_judgments(self, mock_request, tmp_path):
+        """有候选时应正确创建判断."""
+        mock_request.return_value = {"ok": True, "id": 1, "frozen": 5}
+        store = self._make_store_with_uncertainty(tmp_path, rewards=[0.4, 0.5, 0.6])
+        bridge = AntgatherBridge(
+            store=store, dataset_id="DS001", token="tok",
+            base_url="https://test.example.com",
+        )
+        result = bridge.auto_judge()
+        # 3 条轨迹 -> 2 个相邻对
+        assert result["created"] == 2
+        assert result["errors"] == 0
+        store.close()
+
+    @patch.object(AntgatherBridge, "_request")
+    def test_batch_size_limit(self, mock_request, tmp_path):
+        """batch_size 应限制最大创建数."""
+        mock_request.return_value = {"ok": True, "id": 1, "frozen": 5}
+        store = self._make_store_with_uncertainty(
+            tmp_path, rewards=[0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65],
+        )
+        bridge = AntgatherBridge(
+            store=store, dataset_id="DS001", token="tok",
+            base_url="https://test.example.com",
+        )
+        result = bridge.auto_judge(batch_size=3)
+        assert result["created"] == 3
+        store.close()
+
+    @patch.object(AntgatherBridge, "_request")
+    def test_api_error_counted(self, mock_request, tmp_path):
+        """API 失败应计入 errors."""
+        mock_request.side_effect = Exception("boom")
+        store = self._make_store_with_uncertainty(tmp_path, rewards=[0.4, 0.5])
+        bridge = AntgatherBridge(
+            store=store, dataset_id="DS001", token="tok",
+            base_url="https://test.example.com",
+        )
+        result = bridge.auto_judge()
+        assert result["errors"] == 1
+        assert result["created"] == 0
+        store.close()
+
+    def test_rewards_outside_range(self, tmp_path):
+        """reward 不在不确定区间内的轨迹不应参与."""
+        store = self._make_store_with_uncertainty(tmp_path, rewards=[0.1, 0.9])
+        bridge = AntgatherBridge(
+            store=store, dataset_id="DS001", token="tok",
+            base_url="https://test.example.com",
+        )
+        result = bridge.auto_judge(reward_uncertainty_range=(0.3, 0.7))
+        assert result["created"] == 0
         store.close()
