@@ -12,6 +12,8 @@ from trajectoryhub.config import AgentConfig, PipelineConfig, TaskSource
 from trajectoryhub.exporter import DatasetExporter
 from trajectoryhub.pipeline import Pipeline
 from trajectoryhub.tasks import TaskLoader
+from trajectoryhub.cas import CAStore
+from trajectoryhub.ingest import CrewIngestor
 
 
 @click.group()
@@ -557,6 +559,63 @@ def online(
             f"reward={s.avg_reward:.3f}, steps={s.avg_steps:.1f}{eval_info}"
         )
     click.echo(f"\n输出目录: {output}")
+
+
+@main.group()
+def ingest():
+    """从外部来源导入轨迹数据到 CAS."""
+    pass
+
+
+@ingest.command("crew")
+@click.option(
+    "--source",
+    type=click.Path(exists=True),
+    required=True,
+    help="Crew trajectories.jsonl 文件路径",
+)
+@click.option(
+    "--db",
+    type=click.Path(),
+    default=None,
+    help="CAS 数据库路径 (默认: $KNOWLYR_CAS_PATH 或 ./data/cas.sqlite)",
+)
+@click.option("--reset", is_flag=True, help="重置增量游标，从头拉取")
+def ingest_crew(source: str, db: Optional[str], reset: bool):
+    """从 Crew trajectories.jsonl 增量拉取轨迹入 CAS.
+
+    例：knowlyr-hub ingest crew --source ~/.crew/trajectories/trajectories.jsonl
+    """
+    import os
+
+    db_path = db or os.environ.get("KNOWLYR_CAS_PATH", "./data/cas.sqlite")
+    click.echo(f"CAS 数据库: {db_path}")
+    click.echo(f"数据来源: {source}")
+
+    store = CAStore(db_path)
+
+    if reset:
+        # 清除游标
+        cursor_path = store.db_path.parent / ".ingest_cursor.json"
+        if cursor_path.exists():
+            cursor_path.unlink()
+            click.echo("已重置增量游标")
+
+    ingestor = CrewIngestor(store)
+    result = ingestor.ingest(source)
+
+    click.echo(f"\n拉取完成:")
+    click.echo(f"  新增: {result.ingested} 条")
+    click.echo(f"  跳过: {result.skipped} 条")
+    click.echo(f"  错误: {result.errors} 条")
+
+    # 打印当前 CAS 统计
+    stats = store.stats()
+    click.echo(f"\nCAS 当前状态:")
+    click.echo(f"  总轨迹数: {stats['total_trajectories']}")
+    click.echo(f"  不同任务: {stats['unique_tasks']}")
+
+    store.close()
 
 
 if __name__ == "__main__":

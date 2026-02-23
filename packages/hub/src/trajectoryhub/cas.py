@@ -61,13 +61,23 @@ CREATE TABLE IF NOT EXISTS trajectories (
     gdi_score    REAL DEFAULT 0.0,
     export_count INTEGER DEFAULT 0,
     created_at   REAL NOT NULL,
-    data         TEXT NOT NULL
+    data         TEXT NOT NULL,
+    employee     TEXT DEFAULT '',
+    source       TEXT DEFAULT '',
+    domain       TEXT DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_task_id ON trajectories(task_id);
 CREATE INDEX IF NOT EXISTS idx_reward ON trajectories(reward DESC);
 CREATE INDEX IF NOT EXISTS idx_gdi ON trajectories(gdi_score DESC);
 """
+
+# Phase 1 新增列：向后兼容已有数据库
+_MIGRATE_COLUMNS = [
+    ("employee", "TEXT DEFAULT ''"),
+    ("source", "TEXT DEFAULT ''"),
+    ("domain", "TEXT DEFAULT ''"),
+]
 
 
 class CAStore:
@@ -89,6 +99,26 @@ class CAStore:
         self._conn = sqlite3.connect(str(self.db_path))
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """向后兼容：为已有数据库追加新列（如果缺失）."""
+        cursor = self._conn.execute("PRAGMA table_info(trajectories)")
+        existing = {row[1] for row in cursor.fetchall()}
+        for col_name, col_def in _MIGRATE_COLUMNS:
+            if col_name not in existing:
+                self._conn.execute(
+                    f"ALTER TABLE trajectories ADD COLUMN {col_name} {col_def}"
+                )
+                logger.info("已迁移：追加列 %s", col_name)
+        # 确保索引存在
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_employee ON trajectories(employee)"
+        )
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_domain ON trajectories(domain)"
+        )
+        self._conn.commit()
 
     def close(self) -> None:
         """关闭数据库连接."""
@@ -139,11 +169,18 @@ class CAStore:
             ensure_ascii=False,
         )
 
+        # 从 metadata 或顶层属性提取扩展字段
+        meta = getattr(trajectory, "metadata", {}) or {}
+        employee = meta.get("employee", "")
+        source = meta.get("source", meta.get("channel", ""))
+        domain = meta.get("domain", "")
+
         self._conn.execute(
             """INSERT INTO trajectories
                (content_hash, task_id, agent_framework, agent_model,
-                total_steps, success, reward, created_at, data)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                total_steps, success, reward, created_at, data,
+                employee, source, domain)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 h,
                 trajectory.task_id,
@@ -154,6 +191,9 @@ class CAStore:
                 trajectory.reward,
                 now,
                 data,
+                employee,
+                source,
+                domain,
             ),
         )
         self._conn.commit()
