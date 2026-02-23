@@ -111,17 +111,23 @@ class AntgatherBridge:
                 logger.warning("脱敏失败 (hash=%s): %s", row["content_hash"], e)
                 result.errors += 1
 
-        # 更新蚁聚数据集统计
+        # 推送完成后回写蚁聚统计
         if self.dataset_id and result.pushed > 0:
+            cas_stats = self.store.stats()
+            stats_data = {
+                "sample_count": cas_stats["total_trajectories"],
+                "contributor_count": cas_stats["unique_employees"],
+                "covered_categories": cas_stats["unique_tasks"],
+            }
             try:
-                logger.info(
-                    "推送统计: %d 条轨迹, 涉及 %d 位员工 -> 数据集 %s",
-                    result.pushed,
-                    len(employee_counts),
-                    self.dataset_id,
+                resp = self._request(
+                    "PATCH",
+                    f"/api/projects/{self.dataset_id}/stats",
+                    stats_data,
                 )
+                logger.info("已更新蚁聚统计: %s", resp.get("updated", []))
             except Exception as e:
-                logger.warning("更新蚁聚统计失败: %s", e)
+                logger.warning("更新蚁聚统计失败（不阻塞）: %s", e)
 
         return result
 

@@ -365,12 +365,14 @@ class CAStore:
                 AVG(reward) as avg_reward,
                 AVG(gdi_score) as avg_gdi,
                 SUM(export_count) as total_exports,
-                COUNT(DISTINCT task_id) as unique_tasks
+                COUNT(DISTINCT task_id) as unique_tasks,
+                COUNT(DISTINCT employee) as unique_employees
                FROM trajectories"""
         ).fetchone()
         return {
             "total_trajectories": total,
             "unique_tasks": row["unique_tasks"] or 0,
+            "unique_employees": row["unique_employees"] or 0,
             "avg_reward": round(row["avg_reward"] or 0, 4),
             "avg_gdi": round(row["avg_gdi"] or 0, 4),
             "total_exports": row["total_exports"] or 0,

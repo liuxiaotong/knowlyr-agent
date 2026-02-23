@@ -91,7 +91,9 @@ class TestPushTrajectories:
         assert result.errors == 0
         store.close()
 
-    def test_push_with_data(self, tmp_path):
+    @patch.object(AntgatherBridge, "_request")
+    def test_push_with_data(self, mock_request, tmp_path):
+        mock_request.return_value = {"ok": True, "id": "DS001", "updated": ["sample_count", "contributor_count"]}
         store = _make_store_with_data(
             tmp_path,
             [
@@ -122,9 +124,21 @@ class TestPushTrajectories:
         assert result.pushed == 2
         assert result.errors == 0
         assert len(result.sanitized_data) == 2
+        # 验证调用了蚁聚统计 API
+        mock_request.assert_called_once_with(
+            "PATCH",
+            "/api/projects/DS001/stats",
+            {
+                "sample_count": 2,
+                "contributor_count": 2,
+                "covered_categories": 2,
+            },
+        )
         store.close()
 
-    def test_push_with_since(self, tmp_path):
+    @patch.object(AntgatherBridge, "_request")
+    def test_push_with_since(self, mock_request, tmp_path):
+        mock_request.return_value = {"ok": True, "id": "DS001", "updated": []}
         store = _make_store_with_data(
             tmp_path,
             [
@@ -145,6 +159,17 @@ class TestPushTrajectories:
         bridge = AntgatherBridge(store=store, dataset_id="DS001")
         result = bridge.push_trajectories(since=1000000.0)
         assert result.pushed == 1  # 只有 created_at > 1000000.0 的
+        # stats API 用 CAS 总量（2 条），不是本次增量（1 条）
+        # 两条数据都是默认 employee="backend-engineer"，所以 contributor_count=1
+        mock_request.assert_called_once_with(
+            "PATCH",
+            "/api/projects/DS001/stats",
+            {
+                "sample_count": 2,
+                "contributor_count": 1,
+                "covered_categories": 2,
+            },
+        )
         store.close()
 
     def test_push_bad_data(self, tmp_path):
@@ -165,6 +190,52 @@ class TestPushTrajectories:
         result = bridge.push_trajectories()
         assert result.errors == 1
         assert result.pushed == 0
+        store.close()
+
+    @patch.object(AntgatherBridge, "_request")
+    def test_push_stats_api_failure_does_not_block(self, mock_request, tmp_path):
+        """stats API 失败时 warn 但不阻塞推送结果."""
+        mock_request.side_effect = Exception("503 service unavailable")
+        store = _make_store_with_data(
+            tmp_path,
+            [
+                {
+                    "content_hash": "hash1",
+                    "task_id": "t1",
+                    "employee": "backend-engineer",
+                    "created_at": 1000000.0,
+                    "data": {"steps": [], "metadata": {}},
+                },
+            ],
+        )
+        bridge = AntgatherBridge(store=store, dataset_id="DS001")
+        result = bridge.push_trajectories()
+        # 推送本身成功
+        assert result.pushed == 1
+        assert result.errors == 0
+        # stats API 被调用了（虽然失败）
+        mock_request.assert_called_once()
+        store.close()
+
+    def test_push_no_dataset_id_skips_stats(self, tmp_path):
+        """没有 dataset_id 时不调用 stats API."""
+        store = _make_store_with_data(
+            tmp_path,
+            [
+                {
+                    "content_hash": "hash1",
+                    "task_id": "t1",
+                    "employee": "backend-engineer",
+                    "created_at": 1000000.0,
+                    "data": {"steps": [], "metadata": {}},
+                },
+            ],
+        )
+        bridge = AntgatherBridge(store=store, dataset_id="")
+        with patch.object(bridge, "_request") as mock_req:
+            result = bridge.push_trajectories()
+            assert result.pushed == 1
+            mock_req.assert_not_called()
         store.close()
 
 
