@@ -57,12 +57,14 @@ class TrajectoryReward:
         total_score: Overall trajectory score
         outcome_score: Task completion score (binary or test-based)
         process_score: Process quality score (average of step scores)
+        efficiency_score: Step efficiency score (reference/actual ratio)
     """
 
     step_rewards: list[StepReward] = field(default_factory=list)
     total_score: float = 0.0
     outcome_score: float = 0.0
     process_score: float = 0.0
+    efficiency_score: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
@@ -70,6 +72,7 @@ class TrajectoryReward:
             "total_score": round(self.total_score, 4),
             "outcome_score": round(self.outcome_score, 4),
             "process_score": round(self.process_score, 4),
+            "efficiency_score": round(self.efficiency_score, 4),
             "step_count": len(self.step_rewards),
             "step_rewards": [sr.to_dict() for sr in self.step_rewards],
         }
@@ -238,11 +241,11 @@ class RewardEngine:
         # Efficiency bonus/penalty
         efficiency = check_efficiency(steps, reference_steps)
 
-        # Total = weighted combination of outcome and process, adjusted by efficiency
+        # Total = weighted combination of outcome, process, and efficiency
         total_score = (
-            0.4 * outcome_score
-            + 0.5 * process_score
-            + 0.1 * efficiency
+            self.config.outcome_weight * outcome_score
+            + self.config.process_weight * process_score
+            + self.config.efficiency_weight * efficiency
         )
 
         logger.info("评分完成: total=%.4f (outcome=%.4f, process=%.4f, efficiency=%.4f)",
@@ -252,6 +255,7 @@ class RewardEngine:
             total_score=total_score,
             outcome_score=outcome_score,
             process_score=process_score,
+            efficiency_score=efficiency,
         )
 
     def score_batch(

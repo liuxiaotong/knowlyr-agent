@@ -41,6 +41,10 @@ class RewardConfig:
     domain: str = "coding"
     base_url: str | None = None
     api_key: str | None = None
+    # 轨迹级评分权重（outcome/process/efficiency 三项混合权重）
+    outcome_weight: float = 0.4
+    process_weight: float = 0.5
+    efficiency_weight: float = 0.1
 
     def __post_init__(self):
         """Validate weights sum to 1.0."""
@@ -49,6 +53,11 @@ class RewardConfig:
             raise ValueError(
                 f"rule_weight ({self.rule_weight}) + model_weight ({self.model_weight}) "
                 f"= {total}, must sum to 1.0"
+            )
+        traj_total = self.outcome_weight + self.process_weight + self.efficiency_weight
+        if abs(traj_total - 1.0) > 1e-6:
+            raise ValueError(
+                f"outcome_weight + process_weight + efficiency_weight = {traj_total}, must sum to 1.0"
             )
 
     def to_dict(self) -> dict:
