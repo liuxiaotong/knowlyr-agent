@@ -69,6 +69,9 @@ STEP_JUDGE_PROMPT = """你是一个 Agent 轨迹评估专家。请根据以下�
 - 0.5 = 部分满足
 - 1.0 = 完全满足
 - overall_score 应该是各维度分数的加权平均
+- rationale 限制在 100 字以内
+
+重要：只输出 JSON，不要输出其他任何文字。
 """
 
 CONVERSATION_JUDGE_PROMPT = """你是一个 AI 对话质量评估专家。请根据以下评估维度，对 AI 助手的这一步操作进行打分。
@@ -108,6 +111,9 @@ CONVERSATION_JUDGE_PROMPT = """你是一个 AI 对话质量评估专家。请根
 - 0.7 = 基本满足，小有瑕疵
 - 1.0 = 完全满足，回复优秀
 - 重点关注: 回复对用户的实际帮助程度，而非工具调用的技术细节
+- rationale 限制在 100 字以内
+
+重要：只输出 JSON，不要输出其他任何文字。
 """
 
 ENGINEERING_JUDGE_PROMPT = """你是一个工程能力评估专家。请根据以下评估维度，对 AI 工程师的这一步操作进行打分。
@@ -147,6 +153,9 @@ ENGINEERING_JUDGE_PROMPT = """你是一个工程能力评估专家。请根据�
 - 0.7 = 正确且较全面
 - 1.0 = 技术精准、分析深入
 - 重点关注: 技术分析的准确性和工具使用的合理性
+- rationale 限制在 100 字以内
+
+重要：只输出 JSON，不要输出其他任何文字。
 """
 
 ADVISORY_JUDGE_PROMPT = """你是一个专业顾问能力评估专家。请根据以下评估维度，对 AI 顾问的分析/建议进行打分。
@@ -186,6 +195,9 @@ ADVISORY_JUDGE_PROMPT = """你是一个专业顾问能力评估专家。请根�
 - 0.7 = 分析深入、建议可执行
 - 1.0 = 洞察独到、建议精准可行
 - 重点关注: 分析深度、建议的可操作性、是否有证据支撑
+- rationale 限制在 100 字以内
+
+重要：只输出 JSON，不要输出其他任何文字。
 """
 
 DISCUSSION_JUDGE_PROMPT = """你是一个讨论质量评估专家。请根据以下评估维度，对 AI 参与者在讨论中的发言进行打分。
@@ -225,6 +237,9 @@ DISCUSSION_JUDGE_PROMPT = """你是一个讨论质量评估专家。请根据以
 - 0.7 = 提供了有价值的专业观点或推动了结论
 - 1.0 = 发言质量很高，提供了新视角或关键推进
 - 重点关注: 是否提供了新信息、是否回应了他人、是否推动了讨论
+- rationale 限制在 100 字以内
+
+重要：只输出 JSON，不要输出其他任何文字。
 """
 
 
@@ -258,7 +273,7 @@ def _call_anthropic(prompt: str, config: JudgeConfig) -> str:
     client = anthropic.Anthropic()
     response = client.messages.create(
         model=config.model,
-        max_tokens=1024,
+        max_tokens=2048,
         temperature=config.temperature,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -275,7 +290,7 @@ def _call_openai(prompt: str, config: JudgeConfig) -> str:
     client = openai.OpenAI(**kwargs)
     response = client.chat.completions.create(
         model=config.model,
-        max_tokens=1024,
+        max_tokens=2048,
         temperature=config.temperature,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -316,7 +331,7 @@ def _call_llm(prompt: str, config: JudgeConfig) -> str:
 def _extract_json(text: str) -> dict[str, Any]:
     """从 LLM 返回的文本中提取 JSON.
 
-    支持纯 JSON、markdown 代码块包裹、以及混合文本中的 JSON。
+    支持纯 JSON、markdown 代码块包裹、混合文本中的 JSON、以及截断修复。
     """
     # 尝试直接解析
     text = text.strip()
@@ -331,7 +346,10 @@ def _extract_json(text: str) -> dict[str, Any]:
         try:
             return json.loads(match.group(1).strip())
         except json.JSONDecodeError:
-            pass
+            # 代码块内的 JSON 可能被截断，尝试修复
+            result = _try_fix_truncated(match.group(1).strip())
+            if result is not None:
+                return result
 
     # 尝试找第一个 { ... } 块
     match = re.search(r"\{.*\}", text, re.DOTALL)
@@ -339,9 +357,46 @@ def _extract_json(text: str) -> dict[str, Any]:
         try:
             return json.loads(match.group(0))
         except json.JSONDecodeError:
-            pass
+            result = _try_fix_truncated(match.group(0))
+            if result is not None:
+                return result
+
+    # 最后尝试：找第一个 { 开头，修复截断
+    match = re.search(r"\{", text)
+    if match:
+        result = _try_fix_truncated(text[match.start():])
+        if result is not None:
+            return result
 
     raise ValueError(f"无法从 LLM 响应中提取 JSON: {text[:200]}...")
+
+
+def _try_fix_truncated(text: str) -> dict[str, Any] | None:
+    """尝试修复被 max_tokens 截断的 JSON.
+
+    策略：截断 rationale 字符串，补齐缺失的括号。
+    """
+    # 如果 rationale 被截断（常见模式：值字符串没闭合）
+    # 尝试在最后一个完整的 key-value 对后截断，补齐括号
+    for trim in range(min(len(text), 500)):
+        candidate = text[:len(text) - trim]
+        # 补齐缺失的引号和括号
+        open_braces = candidate.count("{") - candidate.count("}")
+        open_brackets = candidate.count("[") - candidate.count("]")
+        # 如果在字符串中间截断，先闭合字符串
+        in_string = candidate.count('"') % 2 == 1
+        if in_string:
+            candidate += '"'
+        candidate += "]" * max(0, open_brackets)
+        candidate += "}" * max(0, open_braces)
+        try:
+            result = json.loads(candidate)
+            if isinstance(result, dict) and "scores" in result:
+                logger.debug("修复截断 JSON 成功 (trimmed %d chars)", trim)
+                return result
+        except json.JSONDecodeError:
+            continue
+    return None
 
 
 def _parse_judgment(
