@@ -578,12 +578,44 @@ def judge_step(
     return _fallback_judgment(rubrics, f"LLM 调用失败: {last_error}")
 
 
+MAX_EVAL_STEPS = 30  # 超过此数量时采样评分
+
+
+def _select_sample_indices(total: int, max_steps: int) -> list[int]:
+    """选择采样步骤索引：首5 + 尾5 + 中间均匀抽样."""
+    if total <= max_steps:
+        return list(range(total))
+
+    head = 5
+    tail = 5
+    middle_budget = max_steps - head - tail
+
+    indices: set[int] = set()
+    # 首尾
+    indices.update(range(min(head, total)))
+    indices.update(range(max(0, total - tail), total))
+    # 中间均匀抽
+    if middle_budget > 0 and total > head + tail:
+        mid_start = head
+        mid_end = total - tail
+        step_size = max(1, (mid_end - mid_start) // (middle_budget + 1))
+        for j in range(mid_start, mid_end, step_size):
+            indices.add(j)
+            if len(indices) >= max_steps:
+                break
+
+    return sorted(indices)[:max_steps]
+
+
 def judge_trajectory(
     trajectory: dict[str, Any],
     rubrics: list[Rubric],
     config: JudgeConfig | None = None,
 ) -> list[StepJudgment]:
     """Judge all steps in a trajectory using LLM-as-Judge.
+
+    超过 MAX_EVAL_STEPS 时自动采样：首5+尾5+中间均匀抽样，
+    未采样步骤用已采样步骤的中位数填充。
 
     Args:
         trajectory: Dict with:
@@ -599,13 +631,29 @@ def judge_trajectory(
     steps = trajectory.get("steps", [])
     task_description = trajectory.get("task", "")
     total_steps = len(steps)
-    judgments = []
-    logger.info("LLM Judge: %d 步, %d 个 rubric, model=%s",
-                total_steps, len(rubrics), config.model)
 
+    # 采样
+    sample_indices = _select_sample_indices(total_steps, MAX_EVAL_STEPS)
+    sampled = len(sample_indices) < total_steps
+    if sampled:
+        logger.info("LLM Judge: %d 步 → 采样 %d 步评分, %d 个 rubric, model=%s",
+                     total_steps, len(sample_indices), len(rubrics), config.model)
+    else:
+        logger.info("LLM Judge: %d 步, %d 个 rubric, model=%s",
+                     total_steps, len(rubrics), config.model)
+
+    sample_set = set(sample_indices)
+    sampled_judgments: list[StepJudgment] = []
+    judgments: list[StepJudgment | None] = [None] * total_steps
     context_parts: list[str] = []
 
     for i, step in enumerate(steps):
+        if i not in sample_set:
+            # 跳过未采样步骤，仅记录上下文
+            tool = step.get("tool", "unknown")
+            context_parts.append(f"Step {i + 1}: {tool} (skipped)")
+            continue
+
         context_summary = "\n".join(context_parts[-5:]) if context_parts else ""
 
         judgment = judge_step(
@@ -617,7 +665,8 @@ def judge_trajectory(
             config=config,
             task_description=task_description,
         )
-        judgments.append(judgment)
+        judgments[i] = judgment
+        sampled_judgments.append(judgment)
 
         # Build context for next step
         tool = step.get("tool", "unknown")
@@ -625,4 +674,23 @@ def judge_trajectory(
             f"Step {i + 1}: {tool} -> score={judgment.score:.2f}"
         )
 
-    return judgments
+    # 用已采样步骤的中位数填充未采样步骤
+    if sampled and sampled_judgments:
+        scores = sorted(j.score for j in sampled_judgments)
+        median_score = scores[len(scores) // 2]
+        # 取各 rubric 的中位数
+        median_rubric: dict[str, float] = {}
+        for r in rubrics:
+            vals = sorted(j.rubric_scores.get(r.id, 0.5) for j in sampled_judgments)
+            median_rubric[r.id] = vals[len(vals) // 2]
+
+        fill = StepJudgment(
+            score=median_score,
+            rationale="(采样填充)",
+            rubric_scores=median_rubric,
+        )
+        for i in range(total_steps):
+            if judgments[i] is None:
+                judgments[i] = fill
+
+    return [j for j in judgments if j is not None]
