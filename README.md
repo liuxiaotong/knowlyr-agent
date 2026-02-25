@@ -1,3 +1,9 @@
+<div align="right">
+
+**English** | [中文](README.zh-CN.md)
+
+</div>
+
 <div align="center">
 
 <h1>knowlyr-gym</h1>
