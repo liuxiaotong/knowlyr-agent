@@ -190,7 +190,7 @@ def extract_session_id(entries: list[dict], filepath: str) -> str:
     return stem[:36]  # UUID 长度
 
 
-def truncate(text: str, max_len: int = 2000) -> str:
+def truncate(text: str, max_len: int = 8000) -> str:
     """截断文本到指定长度。"""
     if not text:
         return ""
@@ -267,6 +267,24 @@ def extract_steps(entries: list[dict]) -> list[dict]:
         ]
 
         if not tool_uses:
+            # 纯思考步骤：assistant 消息只有 text，没有 tool_use
+            if thought:
+                step_id += 1
+                step = {
+                    "step_id": step_id,
+                    "thought": truncate(thought, 8000),
+                    "tool_call": {
+                        "name": "thinking",
+                        "parameters": {},
+                    },
+                    "tool_result": {
+                        "output": "",
+                        "exit_code": 0,
+                    },
+                    "timestamp": timestamp,
+                    "token_count": total_tokens,
+                }
+                steps.append(step)
             continue
 
         # 每个 tool_use 生成一个 step
@@ -284,13 +302,13 @@ def extract_steps(entries: list[dict]) -> list[dict]:
 
             step = {
                 "step_id": step_id,
-                "thought": truncate(thought if i == 0 else "", 2000),
+                "thought": truncate(thought if i == 0 else "", 8000),
                 "tool_call": {
                     "name": tool_name,
                     "parameters": tool_params,
                 },
                 "tool_result": {
-                    "output": truncate(str(tool_output), 2000),
+                    "output": truncate(str(tool_output), 8000),
                     "exit_code": 1 if is_error else 0,
                 },
                 "timestamp": timestamp,
