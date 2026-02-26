@@ -82,7 +82,187 @@ for full_name, slug in CHARACTER_MAP.items():
         SHORT_NAME_MAP[full_name] = slug
 
 CREW_API_URL = "https://crew.knowlyr.com/api/trajectory/report"
+CREW_MEMORY_URL = "https://crew.knowlyr.com/api/memory/add"
 CREW_API_TOKEN = os.environ.get("CREW_API_TOKEN", "")
+
+# ── 记忆提取：复用 reply_postprocess 的判断标准 ─────────────────
+
+# 决策关键词（触发 decision 类记忆）
+_DECISION_KEYWORDS = re.compile(r"决定|统一|不再|确定|方案定|最终选|采用|弃用|禁止")
+
+# 纠正关键词（触发 correction 类记忆）
+_CORRECTION_KEYWORDS = re.compile(r"其实|说错了|纠正|更正|之前错|搞错|误解|实际上应该")
+
+# 产出长度阈值（字符数）
+_LONG_OUTPUT_THRESHOLD = 200
+
+# 最小对话轮数（低于此轮数不检查长产出）
+_MIN_TURNS_FOR_FINDING = 3
+
+
+def classify_text(text: str, turn_count: int = 1) -> tuple[bool, str]:
+    """判断文本是否应写入记忆.
+
+    复用 reply_postprocess.should_push() 的逻辑，但不依赖 crew 包。
+
+    Returns:
+        (should_push, category)
+    """
+    if not text or not text.strip():
+        return False, ""
+
+    if _DECISION_KEYWORDS.search(text):
+        return True, "decision"
+
+    if _CORRECTION_KEYWORDS.search(text):
+        return True, "correction"
+
+    if turn_count >= _MIN_TURNS_FOR_FINDING and len(text) > _LONG_OUTPUT_THRESHOLD:
+        return True, "finding"
+
+    return False, ""
+
+
+def extract_memories_from_entries(entries: list[dict]) -> list[dict]:
+    """从 JSONL 条目中提取应写入记忆的内容.
+
+    扫描所有 assistant 消息，对每条消息的文本内容做分类判断。
+    返回需要写入的记忆列表。
+    """
+    memories: list[dict] = []
+    seen_categories: set[str] = set()  # 同一 session 每个 category 最多一条
+    turn_count = 0
+
+    for entry in entries:
+        msg = entry.get("message", {})
+        role = msg.get("role", "")
+
+        if role == "user":
+            turn_count += 1
+            continue
+
+        if role != "assistant":
+            continue
+
+        content = msg.get("content", [])
+        if not isinstance(content, list):
+            continue
+
+        # 提取文本块
+        text_parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text_parts.append(block.get("text", ""))
+
+        text = "\n".join(text_parts)
+        if not text.strip():
+            continue
+
+        should_push, category = classify_text(text, turn_count)
+        if not should_push or not category:
+            continue
+
+        # 同 session 每个 category 只取第一条（最重要的）
+        if category in seen_categories:
+            continue
+        seen_categories.add(category)
+
+        # 截取前 300 字符作为记忆内容
+        summary = text.strip()[:300]
+        if len(text.strip()) > 300:
+            summary += "..."
+
+        memories.append({
+            "category": category,
+            "content": summary,
+        })
+
+    return memories
+
+
+def post_memory(employee: str, category: str, content: str, session_id: str) -> bool:
+    """POST 单条记忆到 crew 服务器的 /api/memory/add 端点."""
+    payload = {
+        "employee": employee,
+        "category": category,
+        "content": content,
+        "source_session": session_id,
+        "tags": ["auto-push", "claude-code", f"session-{session_id[:8]}"],
+    }
+
+    payload_json = json.dumps(payload, ensure_ascii=False)
+
+    cmd = [
+        "curl", "-s", "-X", "POST", CREW_MEMORY_URL,
+        "-H", f"Authorization: Bearer {CREW_API_TOKEN}",
+        "-H", "Content-Type: application/json",
+        "-d", payload_json,
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        if result.returncode == 0:
+            try:
+                resp = json.loads(result.stdout)
+                if resp.get("ok"):
+                    skipped = resp.get("skipped", False)
+                    if skipped:
+                        print(
+                            f"    [SKIP] {employee}/{category}: 已存在 (幂等)",
+                            file=sys.stderr,
+                        )
+                    else:
+                        print(
+                            f"    [OK] {employee}/{category}: {resp.get('entry_id', '')}",
+                            file=sys.stderr,
+                        )
+                    return True
+                else:
+                    print(
+                        f"    [FAIL] {employee}/{category}: {resp.get('error', 'unknown')}",
+                        file=sys.stderr,
+                    )
+                    return False
+            except json.JSONDecodeError:
+                print(
+                    f"    [FAIL] {employee}/{category}: 响应解析失败",
+                    file=sys.stderr,
+                )
+                return False
+        return False
+    except Exception as e:
+        print(f"    [FAIL] {employee}/{category}: {e}", file=sys.stderr)
+        return False
+
+
+def extract_and_post_memories(session_file: str) -> int:
+    """从 session 文件中提取记忆并 POST 到服务器.
+
+    Returns:
+        成功写入的记忆条数
+    """
+    entries = parse_jsonl(session_file)
+    if not entries:
+        return 0
+
+    employee = detect_employee(entries, session_file)
+    if employee == "unknown-agent":
+        return 0
+
+    session_id = extract_session_id(entries, session_file)
+    memories = extract_memories_from_entries(entries)
+
+    if not memories:
+        return 0
+
+    print(f"  记忆提取: {employee} | {len(memories)} 条待写入", file=sys.stderr)
+
+    posted = 0
+    for mem in memories:
+        if post_memory(employee, mem["category"], mem["content"], session_id):
+            posted += 1
+
+    return posted
 
 # ── 核心：解析 JSONL ──────────────────────────────────────────
 
@@ -519,6 +699,10 @@ def main():
     parser.add_argument(
         "--post", action="store_true", help="POST 到 crew 服务器"
     )
+    parser.add_argument(
+        "--extract-memories", action="store_true",
+        help="从对话中提取决策/发现/纠正，写入 crew 记忆"
+    )
 
     # 其他
     parser.add_argument(
@@ -636,8 +820,24 @@ def main():
                     file=sys.stderr,
                 )
 
+    # 记忆提取
+    if args.extract_memories:
+        if not CREW_API_TOKEN:
+            print("错误: 未设置 CREW_API_TOKEN 环境变量", file=sys.stderr)
+            sys.exit(1)
+
+        session_file = args.session or args.file
+        if session_file:
+            mem_count = extract_and_post_memories(session_file)
+            print(
+                f"  记忆写入: {mem_count} 条",
+                file=sys.stderr,
+            )
+        else:
+            print("  记忆提取: 跳过（需要 --session 或 file 参数）", file=sys.stderr)
+
     # 如果没指定输出，默认打印到 stdout
-    if not args.output and not args.post:
+    if not args.output and not args.post and not args.extract_memories:
         for t in trajectories:
             print(json.dumps(t, ensure_ascii=False))
 
