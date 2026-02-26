@@ -29,9 +29,32 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# ── 花名册：角色名 → slug ─────────────────────────────────────
+# ── 花名册：角色名 → slug（从 crew API 动态加载，硬编码兜底）───
 
-CHARACTER_MAP = {
+
+def _load_character_map_from_api() -> dict[str, str]:
+    """从 crew API 加载花名册，返回 {中文名: slug}。失败返回空 dict。"""
+    import urllib.request
+
+    api_url = os.environ.get("CREW_REMOTE_URL", "https://crew.knowlyr.com")
+    api_token = os.environ.get(
+        "CREW_API_TOKEN", "X52I08vGWptmvtZxCMzX500odojsdv30k-gEq0G4sp8"
+    )
+    try:
+        req = urllib.request.Request(
+            f"{api_url}/api/employees",
+            headers={"Authorization": f"Bearer {api_token}"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+        items = data.get("items", data) if isinstance(data, dict) else data
+        return {e["character_name"]: e["name"] for e in items if e.get("character_name") and e.get("name")}
+    except Exception:
+        return {}
+
+
+# 硬编码兜底（API 不可达时使用）
+_FALLBACK_CHARACTER_MAP = {
     "陆明哲": "product-manager",
     "林锐": "code-reviewer",
     "苏文": "doc-writer",
@@ -66,6 +89,9 @@ CHARACTER_MAP = {
     "赵云帆": "backend-engineer",
     "柳若曦": "customer-success",
 }
+
+# 优先 API，失败用兜底
+CHARACTER_MAP = _load_character_map_from_api() or _FALLBACK_CHARACTER_MAP
 
 # 也支持用 slug 本身匹配
 SLUG_SET = set(CHARACTER_MAP.values())
